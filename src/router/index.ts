@@ -1,6 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
+/* 
+  关键点：
+  Layout 是父级路由，它包含了侧边栏和顶部导航。
+  Dashboard、Diet、User 是子路由，它们会显示在 Layout 的 <router-view> 里面。
+*/
+
 const router = createRouter({
     history: createWebHistory(),
     routes: [
@@ -10,35 +16,45 @@ const router = createRouter({
             component: () => import('@/views/login/Login.vue')
         },
         {
+            // 父级路由：路径是 /
             path: '/',
             name: 'Layout',
-            // 暂时重定向到 login，等下个阶段我们写了主页再改
-            redirect: '/dashboard', 
+            component: () => import('@/layout/index.vue'), // 这里加载侧边栏布局
+            redirect: '/dashboard', // 默认跳到仪表盘
+            // 子路由：所有有侧边栏的页面都写在这里
             children: [
                 {
                     path: 'dashboard',
                     name: 'Dashboard',
-                    // 创建一个临时的空页面，防止报错
-                    component: () => import('@/views/dashboard/index.vue') 
+                    component: () => import('@/views/dashboard/index.vue')
+                },
+                {
+                    path: 'diet',
+                    name: 'Diet',
+                    component: () => import('@/views/diet/index.vue')
                 },
                 {
                     path: 'user',
                     name: 'User',
                     component: () => import('@/views/user/index.vue')
-                }
+                },
+                {
+                    path: 'admin/user',
+                    name: 'AdminUser',
+                    component: () => import('@/views/admin/user/index.vue')
+     } 
             ]
-        },
+        }
     ]
 })
 
-// 路由守卫：类似后端的拦截器
+// 路由守卫 (保持不变)
 router.beforeEach((to, from, next) => {
     const userStore = useUserStore()
-    // 如果去的不是登录页，且没有 Token
     if (to.path !== '/login' && !userStore.token) {
-        next('/login') // 强制踢回登录页
+        next('/login')
     } else {
-        next() // 放行
+        next()
     }
 })
 

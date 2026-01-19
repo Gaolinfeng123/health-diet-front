@@ -3,24 +3,27 @@ import { ref, reactive, onMounted } from 'vue'
 import { Search, Plus, Delete, Sunrise, Sunny, Moon, Grape } from '@element-plus/icons-vue'
 import { getFoodListAPI } from '@/api/food'
 import { addDietRecordAPI, getDietListAPI, deleteDietRecordAPI } from '@/api/diet'
+import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-// --- 状态定义 (修复点：显式指定类型 <any[]>) ---
+const userStore = useUserStore()
+
+// --- 状态定义 ---
 const keyword = ref('')
-const foodList = ref<any[]>([])      // <--- 修复了这里
-const dietList = ref<any[]>([])      // <--- 修复了这里
+const foodList = ref<any[]>([])      
+const dietList = ref<any[]>([])      
 const loading = ref(false)
 const listLoading = ref(false)
 const total = ref(0)          
 
-// 分页参数 (适配后端新逻辑)
 const queryParams = reactive({
   pageNum: 1,
   pageSize: 10,
-  date: new Date().toISOString().split('T')[0]
+  date: new Date().toISOString().split('T')[0],
+  // 修复点: 如果是管理员查看，这里可以扩展，目前默认查自己
+  userId: userStore.userInfo.id 
 })
 
-// 弹窗状态
 const dialogVisible = ref(false)
 const currentFood = ref<any>({})
 const form = reactive({ 
@@ -31,12 +34,10 @@ const form = reactive({
 
 // --- 方法 ---
 
-// 1. 搜索
 const handleSearch = async () => {
   loading.value = true
   try {
     const res = await getFoodListAPI(keyword.value)
-    // 防止后端返回 null 导致报错
     foodList.value = res.data || []
   } catch (e) { 
     console.error(e) 
@@ -45,12 +46,10 @@ const handleSearch = async () => {
   }
 }
 
-// 2. 获取列表 (核心修正：从 records 取数据)
 const loadDietList = async () => {
   listLoading.value = true
   try {
     const res = await getDietListAPI(queryParams)
-    // 这里的结构是 res.data.records
     const pageData = res.data || {}
     dietList.value = pageData.records || []
     total.value = pageData.total || 0
@@ -61,13 +60,11 @@ const loadDietList = async () => {
   }
 }
 
-// 3. 翻页
 const handlePageChange = (newPage: number) => {
   queryParams.pageNum = newPage
   loadDietList()
 }
 
-// 4. 打开弹窗
 const openAddDialog = (food: any) => {
   currentFood.value = food
   form.mealType = 1
@@ -75,18 +72,19 @@ const openAddDialog = (food: any) => {
   dialogVisible.value = true
 }
 
-// 5. 提交添加
+// 核心修复逻辑
 const submitDiet = async () => {
   try {
     await addDietRecordAPI({
       foodId: currentFood.value.id,
       date: form.date,
       mealType: form.mealType,
-      quantity: form.quantity
+      quantity: form.quantity,
+      // 修复 a: 显式传递 userId，解决管理员操作报错问题
+      userId: userStore.userInfo.id 
     })
     ElMessage.success('添加成功')
     dialogVisible.value = false
-    // 成功后刷新列表，并回到第一页
     queryParams.pageNum = 1
     loadDietList()
   } catch (e) { 
@@ -94,7 +92,6 @@ const submitDiet = async () => {
   }
 }
 
-// 6. 删除
 const handleDelete = (id: number) => {
   ElMessageBox.confirm('确认删除？', '提示', { type: 'warning' })
     .then(async () => {
@@ -104,7 +101,6 @@ const handleDelete = (id: number) => {
     })
 }
 
-// 图标映射
 const getMealIcon = (type: number) => {
   const map: Record<number, any> = { 1: Sunrise, 2: Sunny, 3: Moon, 4: Grape }
   return map[type]
@@ -123,7 +119,6 @@ onMounted(() => {
 <template>
   <div class="diet-container">
     <el-row :gutter="20">
-      <!-- 左侧搜索 -->
       <el-col :span="14">
         <el-card shadow="never">
           <div class="header">
@@ -152,7 +147,6 @@ onMounted(() => {
         </el-card>
       </el-col>
 
-      <!-- 右侧记录 -->
       <el-col :span="10">
         <el-card shadow="never">
           <template #header>
@@ -180,7 +174,6 @@ onMounted(() => {
                 </div>
              </div>
              
-             <!-- 分页 -->
              <div class="pagination" v-if="total > 0">
                <el-pagination 
                  background layout="prev, pager, next" 
@@ -195,7 +188,6 @@ onMounted(() => {
       </el-col>
     </el-row>
 
-    <!-- 弹窗 -->
     <el-dialog v-model="dialogVisible" title="添加记录" width="350px">
       <div class="food-info">
         <h4>{{ currentFood.name }}</h4>

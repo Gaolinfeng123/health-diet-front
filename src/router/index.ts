@@ -22,7 +22,7 @@ const router = createRouter({
                     component: () => import('@/views/dashboard/index.vue') 
                 }
             ]
-        }
+        },
     ]
 })
 

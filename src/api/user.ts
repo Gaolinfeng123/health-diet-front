@@ -25,3 +25,11 @@ export const registerAPI = (data: any) => {
         data
     })
 }
+
+// 4. 获取个人信息 (新增)
+export const getUserInfoAPI = () => {
+    return request({
+        url: '/user/info',
+        method: 'get'
+    })
+}

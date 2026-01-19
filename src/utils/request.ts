@@ -20,29 +20,38 @@ request.interceptors.request.use(config => {
     return Promise.reject(error)
 })
 
-// 2. 响应拦截器：收到结果后做的事
+// 响应拦截器
 request.interceptors.response.use(response => {
+    // ... 成功处理逻辑不变
     const res = response.data
-    
-    // 假设后端返回结构是 { code: 200, data: ..., message: ... }
-    // 如果 code 是 200，说明业务成功
-    if (res.code === 200 || res.code === 0) { // 兼容部分后端习惯用 0
+    if (res.code === 200 || res.code === 0) {
         return res
     } else {
-        // 业务失败（如密码错误），弹出错误提示
         ElMessage.error(res.message || '系统异常')
         return Promise.reject(res)
     }
 }, error => {
-    // HTTP 状态码错误处理
+    // --- 重点修改这里 ---
+    let message = '系统未知错误'
+    
+    // 如果后端返回了响应体 (例如 500 错误)
+    if (error.response && error.response.data) {
+        const errData = error.response.data
+        // 优先取后端返回的 msg
+        message = errData.msg || errData.message || message
+    } else {
+        message = error.message
+    }
+
+    // 排除 401 (未登录) 的情况，避免重复报错
     if (error.response && error.response.status === 401) {
-        // 401 说明 Token 过期或未登录
         const userStore = useUserStore()
         userStore.logout()
-        location.reload() // 刷新页面，会被路由守卫踢回登录页
+        location.reload()
     } else {
-        ElMessage.error(error.message || '网络错误')
+        ElMessage.error(message) // 这里就会显示 "用户名已存在"
     }
+    
     return Promise.reject(error)
 })
 

@@ -1,28 +1,29 @@
-import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import request from '@/utils/request'
 
-export const useUserStore = defineStore('user', () => {
-    // 1. 状态 State
-    // 优先从本地缓存读取，没有则为空
-    const token = ref(localStorage.getItem('token') || '')
-    const userInfo = ref(JSON.parse(localStorage.getItem('userInfo') || '{}'))
+// --- 1. 获取验证码 (新增) ---
+export const getCaptchaAPI = () => {
+    return request({
+        url: '/auth/captcha',
+        method: 'get'
+    })
+}
 
-    // 2. 动作 Actions
-    // 登录成功调用：保存 Token 和用户信息
-    const setLoginInfo = (user: any, newToken: string) => {
-        token.value = newToken
-        userInfo.value = user
-        localStorage.setItem('token', newToken)
-        localStorage.setItem('userInfo', JSON.stringify(user))
-    }
+// --- 2. 登录 (支持验证码参数) ---
+// DTO: username, password, captchaKey?, captchaCode?
+export const loginAPI = (data: any) => {
+    return request({
+        url: '/user/login',
+        method: 'post',
+        data
+    })
+}
 
-    // 退出登录调用：清空所有数据
-    const logout = () => {
-        token.value = ''
-        userInfo.value = {}
-        localStorage.removeItem('token')
-        localStorage.removeItem('userInfo')
-    }
-
-    return { token, userInfo, setLoginInfo, logout }
-})
+// --- 3. 注册 (必须带验证码) ---
+// DTO: RegisterDTO 包含 captchaKey, captchaCode
+export const registerAPI = (data: any) => {
+    return request({
+        url: '/user/register',
+        method: 'post',
+        data
+    })
+}

@@ -20,6 +20,11 @@ const router = createRouter({
                     name: 'Dashboard',
                     // 创建一个临时的空页面，防止报错
                     component: () => import('@/views/dashboard/index.vue') 
+                },
+                {
+                    path: 'user',
+                    name: 'User',
+                    component: () => import('@/views/user/index.vue')
                 }
             ]
         },

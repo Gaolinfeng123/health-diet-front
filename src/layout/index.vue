@@ -29,6 +29,13 @@ const handleLogout = () => {
           <el-icon><Odometer /></el-icon>
           <span>仪表盘</span>
         </el-menu-item>
+        
+        <!-- 个人中心 -->
+        <el-menu-item index="/user">
+        <el-icon><User /></el-icon>
+        <span>个人中心</span>
+        </el-menu-item>
+        
         <!-- 后续还会添加饮食记录、个人中心等 -->
       </el-menu>
     </div>

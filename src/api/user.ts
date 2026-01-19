@@ -33,3 +33,21 @@ export const getUserInfoAPI = () => {
         method: 'get'
     })
 }
+
+// 5. 修改个人资料
+export const updateUserInfoAPI = (data: any) => {
+    return request({
+        url: '/user/update',
+        method: 'post',
+        data
+    })
+}
+
+// 6. 修改密码
+export const updatePasswordAPI = (data: any) => {
+    return request({
+        url: '/user/updatePassword',
+        method: 'post',
+        data
+    })
+}

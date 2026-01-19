@@ -8,22 +8,28 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const userStore = useUserStore()
 
-// --- 状态定义 ---
-const keyword = ref('')
-const foodList = ref<any[]>([])      
-const dietList = ref<any[]>([])      
-const loading = ref(false)
-const listLoading = ref(false)
-const total = ref(0)          
+// --- 左侧：食物库状态 ---
+const foodList = ref<any[]>([])
+const foodLoading = ref(false)
+const foodTotal = ref(0)
+const foodQueryParams = reactive({
+  pageNum: 1,
+  pageSize: 10,
+  keyword: ''
+})
 
-const queryParams = reactive({
+// --- 右侧：饮食记录状态 ---
+const dietList = ref<any[]>([])
+const listLoading = ref(false)
+const dietTotal = ref(0)
+const dietQueryParams = reactive({
   pageNum: 1,
   pageSize: 10,
   date: new Date().toISOString().split('T')[0],
-  // 修复点: 如果是管理员查看，这里可以扩展，目前默认查自己
   userId: userStore.userInfo.id 
 })
 
+// --- 弹窗状态 ---
 const dialogVisible = ref(false)
 const currentFood = ref<any>({})
 const form = reactive({ 
@@ -32,39 +38,35 @@ const form = reactive({
   date: new Date().toISOString().split('T')[0] 
 })
 
-// --- 方法 ---
+// =======================
+// 左侧逻辑：食物库
+// =======================
 
-const handleSearch = async () => {
-  loading.value = true
+// 1. 加载/搜索食物
+const loadFoodList = async () => {
+  foodLoading.value = true
   try {
-    const res = await getFoodListAPI(keyword.value)
-    foodList.value = res.data || []
-  } catch (e) { 
-    console.error(e) 
-  } finally { 
-    loading.value = false 
-  }
-}
-
-const loadDietList = async () => {
-  listLoading.value = true
-  try {
-    const res = await getDietListAPI(queryParams)
+    const res = await getFoodListAPI(foodQueryParams)
     const pageData = res.data || {}
-    dietList.value = pageData.records || []
-    total.value = pageData.total || 0
-  } catch (e) { 
-    console.error(e) 
-  } finally { 
-    listLoading.value = false 
-  }
+    foodList.value = pageData.records || []
+    foodTotal.value = pageData.total || 0
+  } catch (e) { console.error(e) } 
+  finally { foodLoading.value = false }
 }
 
-const handlePageChange = (newPage: number) => {
-  queryParams.pageNum = newPage
-  loadDietList()
+// 2. 搜索框触发 (重置到第一页)
+const handleSearch = () => {
+  foodQueryParams.pageNum = 1
+  loadFoodList()
 }
 
+// 3. 食物库翻页
+const handleFoodPageChange = (newPage: number) => {
+  foodQueryParams.pageNum = newPage
+  loadFoodList()
+}
+
+// 4. 打开添加弹窗
 const openAddDialog = (food: any) => {
   currentFood.value = food
   form.mealType = 1
@@ -72,7 +74,29 @@ const openAddDialog = (food: any) => {
   dialogVisible.value = true
 }
 
-// 核心修复逻辑
+// =======================
+// 右侧逻辑：饮食记录
+// =======================
+
+// 1. 加载今日记录
+const loadDietList = async () => {
+  listLoading.value = true
+  try {
+    const res = await getDietListAPI(dietQueryParams)
+    const pageData = res.data || {}
+    dietList.value = pageData.records || []
+    dietTotal.value = pageData.total || 0
+  } catch (e) { console.error(e) } 
+  finally { listLoading.value = false }
+}
+
+// 2. 记录列表翻页
+const handleDietPageChange = (newPage: number) => {
+  dietQueryParams.pageNum = newPage
+  loadDietList()
+}
+
+// 3. 提交添加
 const submitDiet = async () => {
   try {
     await addDietRecordAPI({
@@ -80,18 +104,18 @@ const submitDiet = async () => {
       date: form.date,
       mealType: form.mealType,
       quantity: form.quantity,
-      // 修复 a: 显式传递 userId，解决管理员操作报错问题
       userId: userStore.userInfo.id 
     })
     ElMessage.success('添加成功')
     dialogVisible.value = false
-    queryParams.pageNum = 1
+    
+    // 成功后，刷新右侧列表 (回到第一页看最新)
+    dietQueryParams.pageNum = 1
     loadDietList()
-  } catch (e) { 
-    console.error(e) 
-  }
+  } catch (e) { console.error(e) }
 }
 
+// 4. 删除记录
 const handleDelete = (id: number) => {
   ElMessageBox.confirm('确认删除？', '提示', { type: 'warning' })
     .then(async () => {
@@ -101,6 +125,9 @@ const handleDelete = (id: number) => {
     })
 }
 
+// =======================
+// 通用工具
+// =======================
 const getMealIcon = (type: number) => {
   const map: Record<number, any> = { 1: Sunrise, 2: Sunny, 3: Moon, 4: Grape }
   return map[type]
@@ -111,7 +138,7 @@ const getMealName = (type: number) => {
 }
 
 onMounted(() => {
-  handleSearch()
+  loadFoodList()
   loadDietList()
 })
 </script>
@@ -119,12 +146,14 @@ onMounted(() => {
 <template>
   <div class="diet-container">
     <el-row :gutter="20">
+      
+      <!-- 左侧：食物库 (带分页) -->
       <el-col :span="14">
         <el-card shadow="never">
           <div class="header">
             <h3><el-icon><Search /></el-icon> 食物库</h3>
             <el-input 
-              v-model="keyword" 
+              v-model="foodQueryParams.keyword" 
               placeholder="搜索食物 (如: 米饭)" 
               clearable 
               @keyup.enter="handleSearch" 
@@ -135,7 +164,9 @@ onMounted(() => {
               </template>
             </el-input>
           </div>
-          <el-table :data="foodList" v-loading="loading" height="500" stripe>
+
+          <!-- 食物表格 -->
+          <el-table :data="foodList" v-loading="foodLoading" height="500" stripe>
             <el-table-column prop="name" label="名称" />
             <el-table-column prop="calories" label="热量(kcal)" width="100" />
             <el-table-column label="操作" width="80" align="center">
@@ -144,15 +175,29 @@ onMounted(() => {
               </template>
             </el-table-column>
           </el-table>
+
+          <!-- 新增：食物分页条 -->
+          <div class="pagination-box" v-if="foodTotal > 0">
+            <el-pagination 
+              small
+              background 
+              layout="prev, pager, next" 
+              :total="foodTotal" 
+              :page-size="foodQueryParams.pageSize" 
+              :current-page="foodQueryParams.pageNum"
+              @current-change="handleFoodPageChange"
+            />
+          </div>
         </el-card>
       </el-col>
 
+      <!-- 右侧：今日记录 (带分页) -->
       <el-col :span="10">
         <el-card shadow="never">
           <template #header>
             <div class="flex-between">
               <span>📅 今日记录</span>
-              <el-tag size="small">共 {{ total }} 条</el-tag>
+              <el-tag size="small">共 {{ dietTotal }} 条</el-tag>
             </div>
           </template>
           
@@ -174,13 +219,16 @@ onMounted(() => {
                 </div>
              </div>
              
-             <div class="pagination" v-if="total > 0">
+             <!-- 记录分页条 -->
+             <div class="pagination-box" v-if="dietTotal > 0">
                <el-pagination 
-                 background layout="prev, pager, next" 
-                 :total="total" 
-                 :page-size="queryParams.pageSize" 
-                 :current-page="queryParams.pageNum"
-                 @current-change="handlePageChange"
+                 small
+                 background 
+                 layout="prev, pager, next" 
+                 :total="dietTotal" 
+                 :page-size="dietQueryParams.pageSize" 
+                 :current-page="dietQueryParams.pageNum"
+                 @current-change="handleDietPageChange"
                />
              </div>
           </div>
@@ -188,6 +236,7 @@ onMounted(() => {
       </el-col>
     </el-row>
 
+    <!-- 弹窗 (保持不变) -->
     <el-dialog v-model="dialogVisible" title="添加记录" width="350px">
       <div class="food-info">
         <h4>{{ currentFood.name }}</h4>
@@ -222,7 +271,7 @@ onMounted(() => {
 .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
 .left { display: flex; align-items: center; gap: 10px; .icon { color: #409EFF; } .name { font-weight: 500; } .desc { font-size: 12px; color: #999; } }
 .right { display: flex; align-items: center; gap: 10px; .cal { font-weight: bold; color: #666; } }
-.pagination { margin-top: 10px; display: flex; justify-content: center; }
+.pagination-box { margin-top: 10px; display: flex; justify-content: center; }
 .food-info { text-align: center; background: #fdf6ec; padding: 10px; border-radius: 8px; h4 { margin: 0 0 5px 0; color: #E6A23C; } }
 .mt-20 { margin-top: 20px; }
 </style>

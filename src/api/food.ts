@@ -1,15 +1,16 @@
 import request from '@/utils/request'
 
-// 1. 搜索食物列表 (原有)
-export const getFoodListAPI = (keyword: string = '') => {
+// 1. 搜索食物列表 (分页升级)
+// params: { keyword, pageNum, pageSize }
+export const getFoodListAPI = (params: any) => {
     return request({
         url: '/food/list',
         method: 'get',
-        params: { keyword }
+        params 
     })
 }
 
-// 2. 新增食物 (新增 - 仅管理员)
+// 2. 新增食物
 export const addFoodAPI = (data: any) => {
     return request({
         url: '/food/add',
@@ -18,7 +19,7 @@ export const addFoodAPI = (data: any) => {
     })
 }
 
-// 3. 删除食物 (新增 - 仅管理员)
+// 3. 删除食物
 export const deleteFoodAPI = (id: number) => {
     return request({
         url: `/food/delete/${id}`,

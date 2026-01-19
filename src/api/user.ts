@@ -1,6 +1,14 @@
 import request from '@/utils/request'
 
-// 1. 登录
+// 1. 获取验证码
+export const getCaptchaAPI = () => {
+    return request({
+        url: '/auth/captcha',
+        method: 'get'
+    })
+}
+
+// 2. 登录
 export const loginAPI = (data: any) => {
     return request({
         url: '/user/login',
@@ -9,7 +17,7 @@ export const loginAPI = (data: any) => {
     })
 }
 
-// 2. 注册
+// 3. 注册
 export const registerAPI = (data: any) => {
     return request({
         url: '/user/register',

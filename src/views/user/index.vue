@@ -82,10 +82,10 @@ const submitInfo = async () => {
   } catch (e) { console.error(e) }
 }
 
+// --- 提交修改密码 ---
 const submitPwd = async () => {
   if (!pwdForm.oldPassword || !pwdForm.newPassword) return ElMessage.warning('请填写完整')
   if (pwdForm.newPassword !== pwdForm.confirmPassword) return ElMessage.warning('两次新密码输入不一致')
-  // 修复 b: 校验新旧密码是否相同
   if (pwdForm.oldPassword === pwdForm.newPassword) return ElMessage.warning('新密码不能与旧密码相同')
 
   try {
@@ -96,11 +96,10 @@ const submitPwd = async () => {
     ElMessage.success('密码修改成功，请重新登录')
     userStore.logout()
     location.reload()
-  } catch (e: any) {
-    console.error(e)
-    // 修复 a: 错误处理。虽然 request.ts 已经弹窗了，但这里可以捕获更细节的逻辑
-    // 如果后端返回 500 msg="旧密码错误"，前端 request.ts 会自动弹窗显示该 msg
-    // 所以这里的关键是确保后端抛出了带有具体 msg 的异常
+  } catch (error: any) {
+    console.log('修改密码失败') 
+  } finally {
+    // 无论成功失败，都关闭 Loading
   }
 }
 

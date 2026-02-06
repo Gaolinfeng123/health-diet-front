@@ -1,201 +1,213 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { Search, Plus, Edit, Delete } from '@element-plus/icons-vue'
-import { getUserListAPI, addUserAPI, updateUserAPI, deleteUserAPI } from '@/api/admin'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { User, Lock, Upload, Edit, Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { updateUserInfoAPI, updatePasswordAPI, getUserInfoAPI } from '@/api/user'
+import { uploadActionUrl } from '@/api/file'
+import { ElMessage } from 'element-plus'
+import type { UploadProps } from 'element-plus'
 
 const userStore = useUserStore()
-const router = useRouter()
+const activeTab = ref('info')
+const loading = ref(false) // 按钮加载状态
 
-const tableData = ref([])
-const loading = ref(false)
-const total = ref(0)
-
-// 分页查询参数
-const queryParams = reactive({
-  pageNum: 1,
-  pageSize: 10,
-  username: ''
-})
-
-const dialogVisible = ref(false)
-const isEdit = ref(false)
-const form = reactive({
-  id: undefined,
-  username: '',
-  password: '',
+const infoForm = reactive({
   nickname: '',
-  role: 0
+  gender: 1,
+  age: 0,
+  height: 0,
+  weight: 0,
+  target: 0,
+  avatar: ''
 })
 
-// --- 方法 ---
+const pwdForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
 
-const loadData = async () => {
-  loading.value = true
+const bmi = computed(() => {
+  if (infoForm.height && infoForm.weight) {
+    const h = infoForm.height / 100
+    return (infoForm.weight / (h * h)).toFixed(1)
+  }
+  return '--'
+})
+
+const initData = async () => {
   try {
-    const res = await getUserListAPI(queryParams)
-    // 适配新分页结构
-    const pageData = res.data || {}
-    tableData.value = pageData.records || []
-    total.value = pageData.total || 0
+    const res = await getUserInfoAPI()
+    const data = res.data
+    Object.assign(infoForm, {
+      nickname: data.nickname || data.username,
+      gender: data.gender,
+      age: data.age,
+      height: data.height,
+      weight: data.weight,
+      target: data.target,
+      avatar: data.avatar
+    })
+    userStore.userInfo = data
+    localStorage.setItem('userInfo', JSON.stringify(data))
   } catch (e) {
     console.error(e)
+  }
+}
+
+const uploadHeaders = { Authorization: userStore.token }
+
+const handleAvatarSuccess: UploadProps['onSuccess'] = (response) => {
+  const avatarUrl = response.data || response 
+  infoForm.avatar = avatarUrl
+  ElMessage.success('头像上传成功，记得点击保存哦')
+}
+
+const beforeAvatarUpload: UploadProps['beforeUpload'] = (rawFile) => {
+  if (rawFile.type !== 'image/jpeg' && rawFile.type !== 'image/png') {
+    ElMessage.error('头像必须是 JPG/PNG 格式!')
+    return false
+  } else if (rawFile.size / 1024 / 1024 > 2) {
+    ElMessage.error('头像大小不能超过 2MB!')
+    return false
+  }
+  return true
+}
+
+const submitInfo = async () => {
+  loading.value = true
+  try {
+    const submitData = { ...infoForm, id: userStore.userInfo.id }
+    await updateUserInfoAPI(submitData)
+    ElMessage.success('资料修改成功')
+    initData() 
+  } catch (e) { 
+    console.error(e) 
   } finally {
     loading.value = false
   }
 }
 
-// 翻页
-const handlePageChange = (newPage: number) => {
-  queryParams.pageNum = newPage
-  loadData()
-}
+// --- 核心修复：submitPwd ---
+const submitPwd = async () => {
+  // 1. 前端校验
+  if (!pwdForm.oldPassword || !pwdForm.newPassword) return ElMessage.warning('请填写完整')
+  if (pwdForm.newPassword !== pwdForm.confirmPassword) return ElMessage.warning('两次新密码输入不一致')
+  if (pwdForm.oldPassword === pwdForm.newPassword) return ElMessage.warning('新密码不能与旧密码相同')
 
-const openAdd = () => {
-  isEdit.value = false
-  form.id = undefined
-  form.username = ''
-  form.password = ''
-  form.nickname = ''
-  form.role = 0
-  dialogVisible.value = true
-}
-
-const openEdit = (row: any) => {
-  isEdit.value = true
-  form.id = row.id
-  form.username = row.username
-  form.password = ''
-  form.nickname = row.nickname
-  form.role = row.role
-  dialogVisible.value = true
-}
-
-const handleSubmit = async () => {
-  if (!form.username) return ElMessage.warning('请输入用户名')
-  if (!isEdit.value && !form.password) return ElMessage.warning('新增用户必须设置密码')
+  // 2. 开启 Loading，防止连点
+  loading.value = true
 
   try {
-    const submitData: any = { ...form }
-
-    if (isEdit.value) {
-      if (!submitData.password) delete submitData.password
-      
-      await updateUserAPI(submitData)
-      ElMessage.success('修改成功')
-
-      if (submitData.id === userStore.userInfo.id && submitData.role !== 1) {
-        ElMessageBox.alert('您已修改自己的权限为普通用户，需要重新登录', '权限变更', {
-          callback: () => {
-            userStore.logout()
-            router.push('/login')
-          }
-        })
-        return
-      }
-    } else {
-      await addUserAPI(submitData)
-      ElMessage.success('新增成功')
-    }
-    
-    dialogVisible.value = false
-    loadData()
-  } catch (e) { console.error(e) }
-}
-
-const handleDelete = (id: number) => {
-  if (id === userStore.userInfo.id) return ElMessage.warning('不能删除自己')
-  ElMessageBox.confirm('确认删除该用户?', '警告', { type: 'error' })
-    .then(async () => {
-      await deleteUserAPI(id)
-      ElMessage.success('删除成功')
-      loadData()
+    await updatePasswordAPI({
+      oldPassword: pwdForm.oldPassword,
+      newPassword: pwdForm.newPassword
     })
+    
+    // 成功逻辑
+    ElMessage.success('密码修改成功，请重新登录')
+    userStore.logout()
+    location.reload()
+    
+  } catch (e) {
+    // 既然控制台只有一次报错，说明这里的 catch 捕获到了
+    // 只打印日志，把 UI 提示完全交给 request.ts
+    console.log('修改密码业务中断（错误提示已由全局拦截器发出）')
+  } finally {
+    // 无论成功失败，都关闭 Loading
+    loading.value = false
+  }
 }
 
 onMounted(() => {
-  loadData()
+  initData()
 })
 </script>
 
 <template>
-  <div class="admin-user-container">
-    <el-card shadow="never" class="search-card">
-      <div class="header">
-        <div class="left">
-          <el-input 
-            v-model="queryParams.username" 
-            placeholder="搜索用户名" 
-            clearable 
-            @clear="loadData"
-            @keyup.enter="loadData" 
-            style="width: 200px"
-          />
-          <el-button type="primary" :icon="Search" @click="loadData">搜索</el-button>
-        </div>
-        <el-button type="success" :icon="Plus" @click="openAdd">新增用户</el-button>
-      </div>
-    </el-card>
+  <div class="user-container">
+    <el-row :gutter="20">
+      <el-col :span="8">
+        <el-card shadow="hover" class="profile-card">
+          <div class="avatar-box">
+            <el-avatar :size="100" :src="infoForm.avatar || 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'" />
+            <h3>{{ infoForm.nickname }}</h3>
+            <p class="role-tag">{{ userStore.userInfo.role === 1 ? '管理员' : '普通用户' }}</p>
+          </div>
+          <div class="stats-box">
+            <div class="stat-item"><div class="val">{{ infoForm.height }}</div><div class="label">身高 (cm)</div></div>
+            <div class="stat-item"><div class="val">{{ infoForm.weight }}</div><div class="label">体重 (kg)</div></div>
+            <div class="stat-item"><div class="val">{{ bmi }}</div><div class="label">BMI</div></div>
+          </div>
+        </el-card>
+      </el-col>
 
-    <el-card shadow="never" class="mt-20">
-      <div class="table-wrapper">
-        <el-table :data="tableData" v-loading="loading" stripe style="width: 100%">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="username" label="账号" width="150" />
-          <el-table-column prop="nickname" label="昵称" width="150" />
-          <el-table-column label="角色" width="120">
-            <template #default="scope">
-              <el-tag v-if="scope.row.role === 1" type="danger">管理员</el-tag>
-              <el-tag v-else type="info">普通用户</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
-            <template #default="scope">
-              <el-button type="primary" link :icon="Edit" @click="openEdit(scope.row)">编辑</el-button>
-              <el-button type="danger" link :icon="Delete" @click="handleDelete(scope.row.id)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-      
-      <!-- 新增分页 -->
-      <div class="pagination-box" v-if="total > 0">
-        <el-pagination 
-          background 
-          layout="prev, pager, next" 
-          :total="total"
-          :page-size="queryParams.pageSize" 
-          @current-change="handlePageChange"
-        />
-      </div>
-    </el-card>
+      <el-col :span="16">
+        <el-card shadow="hover">
+          <el-tabs v-model="activeTab">
+            <el-tab-pane label="基本资料" name="info">
+              <el-form label-position="top" size="large">
+                <el-form-item label="头像">
+                  <el-upload class="avatar-uploader" :action="uploadActionUrl" :headers="uploadHeaders" :show-file-list="false" :on-success="handleAvatarSuccess" :before-upload="beforeAvatarUpload">
+                    <img v-if="infoForm.avatar" :src="infoForm.avatar" class="avatar" />
+                    <el-icon v-else class="avatar-uploader-icon"><Plus /></el-icon>
+                  </el-upload>
+                </el-form-item>
+                 <el-row :gutter="20">
+                  <el-col :span="12"><el-form-item label="昵称"><el-input v-model="infoForm.nickname" /></el-form-item></el-col>
+                  <el-col :span="12"><el-form-item label="性别"><el-radio-group v-model="infoForm.gender"><el-radio :label="1">男</el-radio><el-radio :label="0">女</el-radio></el-radio-group></el-form-item></el-col>
+                </el-row>
+                <el-row :gutter="20">
+                  <el-col :span="8"><el-form-item label="年龄"><el-input-number v-model="infoForm.age" :min="1" /></el-form-item></el-col>
+                  <el-col :span="8"><el-form-item label="身高"><el-input-number v-model="infoForm.height" :min="50" /></el-form-item></el-col>
+                  <el-col :span="8"><el-form-item label="体重"><el-input-number v-model="infoForm.weight" :min="20" /></el-form-item></el-col>
+                </el-row>
+                <el-form-item label="当前目标">
+                  <el-radio-group v-model="infoForm.target">
+                    <el-radio-button :label="-1">减脂</el-radio-button>
+                    <el-radio-button :label="0">维持</el-radio-button>
+                    <el-radio-button :label="1">增肌</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <el-button type="primary" :icon="Edit" :loading="loading" @click="submitInfo">保存修改</el-button>
+              </el-form>
+            </el-tab-pane>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑用户' : '新增用户'" width="500px">
-      <el-form label-width="80px">
-        <el-form-item label="账号"><el-input v-model="form.username" :disabled="isEdit" /></el-form-item>
-        <el-form-item label="昵称"><el-input v-model="form.nickname" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="form.password" type="password" show-password :placeholder="isEdit ? '留空不改' : '必填'" /></el-form-item>
-        <el-form-item label="角色">
-          <el-radio-group v-model="form.role">
-            <el-radio :label="0">普通用户</el-radio>
-            <el-radio :label="1">管理员</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确认</el-button>
-      </template>
-    </el-dialog>
+            <el-tab-pane label="修改密码" name="password">
+              <el-form label-position="top" size="large" style="max-width: 400px">
+                <el-form-item label="旧密码"><el-input v-model="pwdForm.oldPassword" type="password" show-password /></el-form-item>
+                <el-form-item label="新密码"><el-input v-model="pwdForm.newPassword" type="password" show-password /></el-form-item>
+                <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirmPassword" type="password" show-password /></el-form-item>
+                <!-- 加载状态绑定到按钮 -->
+                <el-button 
+                  type="danger" 
+                  native-type="button" 
+                  :icon="Lock" 
+                  :loading="loading" 
+                  @click.prevent="submitPwd"
+                >
+                    确认修改密码
+                </el-button>
+              </el-form>
+            </el-tab-pane>
+          </el-tabs>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <style scoped lang="scss">
-.admin-user-container { padding: 20px; }
-.header { display: flex; justify-content: space-between; align-items: center; }
-.left { display: flex; gap: 10px; }
-.mt-20 { margin-top: 20px; }
-.pagination-box { margin-top: 15px; display: flex; justify-content: flex-end; }
+.user-container { padding: 10px; }
+.profile-card {
+  text-align: center;
+  .avatar-box { padding: 20px 0; h3 { margin: 10px 0 5px; } .role-tag { color: #999; font-size: 13px; margin: 0; } }
+  .stats-box { display: flex; border-top: 1px solid #eee; padding-top: 20px; .stat-item { flex: 1; .val { font-weight: bold; font-size: 18px; color: #333; } .label { font-size: 12px; color: #999; } } }
+}
+.avatar-uploader {
+  border: 1px dashed #d9d9d9; border-radius: 6px; cursor: pointer; position: relative; overflow: hidden; width: 100px; height: 100px; display: flex; justify-content: center; align-items: center;
+  &:hover { border-color: #409EFF; }
+}
+.avatar-uploader-icon { font-size: 28px; color: #8c939d; }
+.avatar { width: 100px; height: 100px; display: block; object-fit: cover; }
 </style>

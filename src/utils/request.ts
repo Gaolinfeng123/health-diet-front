@@ -2,16 +2,40 @@ import axios from 'axios'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 
-// 创建 axios 实例
 const request = axios.create({
-    baseURL: '/api', // 配合 vite.config.ts 的代理配置
-    timeout: 5000    // 请求超时时间 5秒
+    baseURL: '/api',
+    timeout: 5000
 })
 
-// 1. 请求拦截器：发送请求前做的事
+// ==========================================
+// 核心修复：全局报错防抖工具
+// ==========================================
+let isErrorMessageShowing = false // 锁变量
+
+const showOneError = (msg: string) => {
+    // 1. 如果锁住了，直接忽略后续报错，防止重叠
+    if (isErrorMessageShowing) {
+        return
+    }
+
+    // 2. 没锁，上锁并弹窗
+    isErrorMessageShowing = true
+    
+    // 3. 强制关闭旧的弹窗 (清爽)
+    ElMessage.closeAll()
+    
+    // 4. 显示新的
+    ElMessage.error(msg)
+
+    // 5. 500毫秒后开锁 (足够应对双重提交的时间差)
+    setTimeout(() => {
+        isErrorMessageShowing = false
+    }, 500)
+}
+// ==========================================
+
 request.interceptors.request.use(config => {
     const userStore = useUserStore()
-    // 如果有 Token，就加到 Header 里
     if (userStore.token) {
         config.headers.Authorization = userStore.token
     }
@@ -20,39 +44,46 @@ request.interceptors.request.use(config => {
     return Promise.reject(error)
 })
 
-// 响应拦截器
-request.interceptors.response.use(response => {
-    // ... 成功处理逻辑不变
-    const res = response.data
-    if (res.code === 200 || res.code === 0) {
-        return res
-    } else {
-        ElMessage.error(res.message || '系统异常')
-        return Promise.reject(res)
-    }
-}, error => {
-    // --- 重点修改这里 ---
-    let message = '系统未知错误'
-    
-    // 如果后端返回了响应体 (例如 500 错误)
-    if (error.response && error.response.data) {
-        const errData = error.response.data
-        // 优先取后端返回的 msg
-        message = errData.msg || errData.message || message
-    } else {
-        message = error.message
-    }
+request.interceptors.response.use(
+    response => {
+        const res = response.data
+        
+        // 兼容后端习惯：code=0 或 200 都是成功
+        if (res.code === 200 || res.code === 0) {
+            return res
+        } else {
+            // 后端传过来的 res.msg 就是 "旧密码错误，请重新输入"
+            const msg = res.msg || res.message || '操作失败'
+            
+            showOneError(msg) // <--- 使用防抖函数
+            
+            return Promise.reject(res)
+        }
+    },
+    error => {
+        // HTTP 状态码错误 (4xx, 5xx)
+        let message = '系统未知错误'
+        
+        if (error.response && error.response.data) {
+            const d = error.response.data
+            // 这里也可能获取到 "旧密码错误..."
+            message = d.msg || d.message || (typeof d === 'string' ? d : message)
+        } else {
+            message = error.message
+        }
 
-    // 排除 401 (未登录) 的情况，避免重复报错
-    if (error.response && error.response.status === 401) {
-        const userStore = useUserStore()
-        userStore.logout()
-        location.reload()
-    } else {
-        ElMessage.error(message) // 这里就会显示 "用户名已存在"
+        if (error.response && error.response.status === 401) {
+            const userStore = useUserStore()
+            userStore.logout()
+            location.reload()
+        } else {
+            if (message !== 'canceled') {
+                showOneError(message) // <--- 使用防抖函数
+            }
+        }
+        
+        return Promise.reject(error)
     }
-    
-    return Promise.reject(error)
-})
+)
 
 export default request

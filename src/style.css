@@ -1,0 +1,64 @@
+:root {
+  --el-color-primary: #10b981;
+  --glass-bg: rgba(255, 255, 255, 0.2); /* 降低透明度，让质感更透 */
+  --glass-border: rgba(255, 255, 255, 0.3);
+}
+
+/* 1. 动态极光背景：只有背景五彩斑斓，毛玻璃才高级 */
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #e8f3f0;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.3) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(52, 211, 153, 0.3) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.2) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(110, 231, 183, 0.3) 0px, transparent 50%);
+  background-attachment: fixed;
+  font-family: 'PingFang SC', sans-serif;
+}
+
+/* 2. 强化玻璃核心 */
+.glass-effect {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(25px) saturate(180%) !important; /* 增加模糊度和饱和度 */
+  -webkit-backdrop-filter: blur(25px) saturate(180%) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1) !important;
+}
+
+/* 3. 卡片全面玻璃化 */
+.el-card {
+  border-radius: 30px !important;
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--glass-border) !important;
+  transition: all 0.4s ease !important;
+}
+
+.el-card:hover {
+  transform: translateY(-10px);
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* 隐藏滚动条 */
+::-webkit-scrollbar { width: 0; height: 0; }
+
+/* 1. 强制玻璃化所有弹出层（包括下拉菜单、选择器弹窗等） */
+.el-popper.is-light {
+  background: rgba(255, 255, 255, 0.5) !important; /* 半透明背景 */
+  backdrop-filter: blur(20px) !important;        /* 毛玻璃模糊 */
+  border: 1px solid rgba(255, 255, 255, 0.3) !important; /* 柔和边框 */
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 2. 移除内部菜单容器的背景 */
+.el-dropdown-menu {
+  background-color: transparent !important;
+}
+
+/* 3. 修复弹出层的小三角箭头，使其也透明 */
+.el-popper.is-light .el-popper__arrow::before {
+  background: rgba(255, 255, 255, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}

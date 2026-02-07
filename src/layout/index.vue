@@ -1,219 +1,220 @@
 <script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
-
-// 引入图标 (虽然 main.ts 注册了全局，显式引入更安全)
-import { Odometer, Food, User, SwitchButton, ArrowDown, CaretBottom } from '@element-plus/icons-vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
+import { 
+  House, Food, User, CaretBottom, Setting, 
+  Fold, Expand, Bell, Search, IceTea, SwitchButton, PieChart, Sunny
+} from '@element-plus/icons-vue'
 
 const userStore = useUserStore()
 const router = useRouter()
 const route = useRoute()
+const isCollapse = ref(false)
 
-// 退出登录
-const handleLogout = () => {
-  ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '退出',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(() => {
-    userStore.logout()
-    router.push('/login')
-  })
+const tipsList = ["餐后30分钟散步可平抑血糖波动。🏃", "早起一杯温开水，唤醒肠胃动力。💧", "多吃绿叶蔬菜，补充天然膳食纤维。🥗", "少吃加工食品，多吃天然原粮。🌾"]
+const currentTipIndex = ref(0)
+let tipTimer: any = null
+const rotateTips = () => { tipTimer = setInterval(() => { currentTipIndex.value = (currentTipIndex.value + 1) % tipsList.length }, 5000) }
+
+const waterCount = ref(Number(localStorage.getItem('water_count')) || 0)
+const lastDrinkTime = ref(localStorage.getItem('last_drink_time') || '')
+const timeElapsedStr = ref('')
+
+const updateTimeElapsed = () => {
+  if (!lastDrinkTime.value) { timeElapsedStr.value = '尚未饮水'; return }
+  const diff = Math.floor((new Date().getTime() - new Date(lastDrinkTime.value).getTime()) / (1000 * 60))
+  timeElapsedStr.value = diff < 1 ? '刚刚喝过水' : `距上次喝水 ${diff} 分钟`
 }
+
+const addWater = () => {
+  waterCount.value++; const now = new Date().toISOString()
+  lastDrinkTime.value = now; localStorage.setItem('water_count', waterCount.value.toString())
+  localStorage.setItem('last_drink_time', now); updateTimeElapsed()
+}
+
+const breadcrumbName = computed(() => {
+  const map: Record<string, string> = { 'Dashboard': '首页', 'Diet': '饮食记录', 'User': '个人中心', 'Report': '分析报告', 'AdminUser': '用户管理', 'AdminFood': '食物库管理' }
+  return map[route.name as string] || route.name
+})
+
+const searchKeyword = ref('')
+const handleSearch = () => {
+  if (!searchKeyword.value) return
+  router.push({ path: '/diet', query: { keyword: searchKeyword.value } })
+}
+
+onMounted(() => { updateTimeElapsed(); rotateTips(); setInterval(updateTimeElapsed, 60000) })
+onUnmounted(() => { clearInterval(tipTimer) })
 </script>
 
 <template>
-  <div class="app-wrapper">
-    <!-- 左侧侧边栏 -->
-    <div class="sidebar-container">
-      <div class="logo">
-        <img src="https://element-plus.org/images/element-plus-logo.svg" alt="logo" class="logo-img" v-if="false" />
-        <span class="title">Health Diet</span>
+  <div class="app-layout">
+    <!-- 侧边栏：磨砂质感 -->
+    <aside class="side-panel glass-effect" :class="{ 'is-collapsed': isCollapse }">
+      <div class="side-top-nav">
+        <div class="side-logo" @click="router.push('/')">
+          <div class="logo-inner">HD</div>
+          <span class="logo-text" v-show="!isCollapse">Health Diet</span>
+        </div>
+        
+        <el-menu :default-active="route.path" :collapse="isCollapse" router class="menu-list">
+          <el-menu-item index="/dashboard"><el-icon><House /></el-icon><template #title>首页</template></el-menu-item>
+          <el-menu-item index="/diet"><el-icon><Food /></el-icon><template #title>饮食记录</template></el-menu-item>
+          <el-menu-item index="/report"><el-icon><PieChart /></el-icon><template #title>分析报告</template></el-menu-item>
+          <el-menu-item index="/user"><el-icon><User /></el-icon><template #title>个人中心</template></el-menu-item>
+          <el-sub-menu index="/admin" v-if="userStore.userInfo.role === 1">
+            <template #title><el-icon><Setting /></el-icon><span>系统管理</span></template>
+            <el-menu-item index="/admin/user">用户管理</el-menu-item>
+            <el-menu-item index="/admin/food">食物管理</el-menu-item>
+          </el-sub-menu>
+        </el-menu>
       </div>
 
-      <el-menu :default-active="route.path" background-color="#304156" text-color="#bfcbd9" active-text-color="#409EFF"
-        router class="el-menu-vertical">
-        <!-- 菜单 1: 仪表盘 -->
-        <el-menu-item index="/dashboard">
-          <el-icon>
-            <Odometer />
-          </el-icon>
-          <span>仪表盘</span>
-        </el-menu-item>
+      <!-- 侧边栏下半部分：图片与工具 -->
+      <div class="side-widget-area" v-show="!isCollapse">
+        <!-- 每日建议 -->
+        <div class="advice-bubble">
+          <div class="label"><el-icon><Sunny /></el-icon> 每日健康建议</div>
+          <transition name="tip-fade" mode="out-in">
+            <div :key="currentTipIndex" class="tip-content">{{ tipsList[currentTipIndex] }}</div>
+          </transition>
+        </div>
 
-        <!-- 菜单 2: 饮食记录 -->
-        <el-menu-item index="/diet">
-          <el-icon>
-            <Food />
-          </el-icon>
-          <span>饮食记录</span>
-        </el-menu-item>
+        <!-- 🎨 图片：设为 flex: 1 强制撑开占据空间 -->
+        <div class="illustration-container">
+          <img src="@/assets/side-health.png" class="big-side-img" />
+        </div>
 
-        <!-- 菜单 3: 个人中心 -->
-        <el-menu-item index="/user">
-          <el-icon>
-            <User />
-          </el-icon>
-          <span>个人中心</span>
-        </el-menu-item>
+        <!-- 饮水打卡 -->
+        <div class="water-capsule">
+           <div class="w-left">
+             <div class="w-title">饮水追踪</div>
+             <div class="w-val"><b>{{ waterCount }}</b> <small>/ 8杯</small></div>
+           </div>
+           <el-button type="primary" circle @click="addWater"><el-icon><IceTea /></el-icon></el-button>
+        </div>
+      </div>
+    </aside>
 
-        <!-- 管理员专属菜单 -->
-        <el-sub-menu index="/admin" v-if="userStore.userInfo.role === 1">
-          <template #title>
-            <el-icon>
-              <Setting />
-            </el-icon>
-            <span>系统管理</span>
-          </template>
-          <el-menu-item index="/admin/user">用户管理</el-menu-item>
-          <!-- 新增：食物管理 -->
-          <el-menu-item index="/admin/food">食物库管理</el-menu-item>
-        </el-sub-menu>
-      </el-menu>
-    </div>
+    <main class="main-panel">
+      <!-- 顶部导航：[折叠] [面包屑] [搜索] -->
+      <header class="top-nav glass-effect">
+        <div class="nav-left">
+          <div class="toggle-btn" @click="isCollapse = !isCollapse"><el-icon :size="20"><component :is="isCollapse ? Expand : Fold" /></el-icon></div>
+          <el-breadcrumb separator="/" class="breadcrumb"><el-breadcrumb-item>{{ breadcrumbName }}</el-breadcrumb-item></el-breadcrumb>
+          <div class="search-capsule">
+            <el-icon><Search /></el-icon>
+            <input v-model="searchKeyword" type="text" placeholder="探索健康饮食..." @keyup.enter="handleSearch" />
+          </div>
+        </div>
 
-    <!-- 右侧主体区域 -->
-    <div class="main-container">
-      <!-- 顶部导航栏 -->
-      <div class="navbar">
-        <div class="right-menu">
+        <div class="nav-right">
+          <el-badge is-dot><el-icon :size="20" style="cursor:pointer"><Bell /></el-icon></el-badge>
           <el-dropdown trigger="click">
-            <div class="avatar-wrapper">
-              <!-- 显示用户头像或默认头像 -->
-              <el-avatar :size="30"
-                :src="userStore.userInfo.avatar || 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'"
-                class="user-avatar" />
-              <span class="username">{{ userStore.userInfo.nickname || userStore.userInfo.username || '用户' }}</span>
-              <el-icon>
-                <CaretBottom />
-              </el-icon>
+            <div class="user-capsule">
+              <el-avatar :size="32" :src="userStore.userInfo.avatar" />
+              <span class="user-name">{{ userStore.userInfo.nickname || '管理员' }}</span>
+              <el-icon><CaretBottom /></el-icon>
             </div>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item @click="router.push('/user')">个人中心</el-dropdown-item>
-                <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
+                <el-dropdown-item divided @click="userStore.logout(); router.push('/login')">退出系统</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </div>
-      </div>
+      </header>
 
-      <!-- 内容展示区 (路由出口) -->
-      <div class="app-main">
-        <router-view v-slot="{ Component }">
-          <transition name="fade-transform" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
-      </div>
-    </div>
+      <section class="content-body"><router-view /></section>
+    </main>
   </div>
 </template>
 
 <style scoped lang="scss">
-.app-wrapper {
-  display: flex;
-  width: 100%;
-  height: 100vh;
-  /* 强制占满全屏高度 */
-  overflow: hidden;
-}
+.app-layout { display: flex; width: 100vw; height: 100vh; overflow: hidden; }
 
-.sidebar-container {
-  width: 220px;
-  background-color: #304156;
-  height: 100%;
-  transition: width 0.28s;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0; // 防止被压缩
+/* 侧边栏玻璃感增强 */
+.side-panel {
+  width: 280px; display: flex; flex-direction: column; transition: width 0.3s;
+  background: rgba(255, 255, 255, 0.1) !important;
+  &.is-collapsed { width: 70px; }
 
-  .logo {
-    height: 60px;
-    line-height: 60px;
-    text-align: center;
-    background: #2b3a4d;
-    overflow: hidden;
+  .side-top-nav { flex: none; }
+  .side-logo { height: 90px; display: flex; align-items: center; padding: 0 25px; gap: 12px; .logo-inner { width: 34px; height: 34px; background: #10b981; color: white; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: bold; } .logo-text { font-weight: 800; font-size: 20px; color: #10b981; } }
 
-    .title {
-      color: white;
-      font-weight: 600;
-      font-size: 20px;
-      font-family: Avenir, Helvetica Neue, Arial, Helvetica, sans-serif;
-      vertical-align: middle;
-    }
+  /* 使用 :deep 穿透组件限制，强制清除菜单背景 */
+.menu-list {
+  background: transparent !important;
+  border: none !important;
+
+  /* 清除子菜单容器的背景（这是最关键的一行） */
+  :deep(.el-menu--inline) {
+    background-color: transparent !important;
   }
 
-  .el-menu-vertical {
-    border-right: none; // 去掉菜单右侧默认的白线
-    width: 100%;
+  /* 清除菜单项及其标题的背景 */
+  :deep(.el-menu-item), :deep(.el-sub-menu__title) {
+    background-color: transparent !important;
+  }
 
-    /* 选中项样式 */
-    :deep(.el-menu-item.is-active) {
-      background-color: #263445 !important;
-    }
-
-    :deep(.el-menu-item:hover) {
-      background-color: #263445 !important;
-    }
+  /* 只有鼠标悬停时才显示淡色背景 */
+  :deep(.el-menu-item:hover), :deep(.el-sub-menu__title:hover) {
+    background-color: rgba(16, 185, 129, 0.1) !important;
   }
 }
 
-.main-container {
-  flex: 1;
-  /* 占据剩余空间 */
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background-color: #f0f2f5;
+  /* 核心：侧边栏小工具布局 */
+  .side-widget-area {
+    flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 15px; min-height: 0;
+    
+    .advice-bubble {
+      background: rgba(255,255,255,0.4); padding: 15px; border-radius: 24px;
+      .label { font-size: 12px; font-weight: bold; color: #059669; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+      .tip-content { font-size: 13px; color: #374151; line-height: 1.5; }
+    }
 
-  .navbar {
-    height: 60px;
-    background: white;
-    box-shadow: 0 1px 4px rgba(0, 21, 41, .08);
-    display: flex;
-    justify-content: flex-end;
-    /* 内容靠右 */
-    align-items: center;
-    padding: 0 20px;
-
-    .avatar-wrapper {
-      display: flex;
-      align-items: center;
-      cursor: pointer;
-      gap: 5px;
-
-      .username {
-        font-size: 14px;
-        color: #333;
+    .illustration-container {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      min-height: 0; /* 允许 flex 压缩 */
+      .big-side-img { 
+        width: 100%; height: 100%; 
+        object-fit: contain; /* 保证图片在不溢出的前提下尽可能大 */
+        filter: drop-shadow(0 15px 15px rgba(0,0,0,0.05));
       }
     }
-  }
 
-  .app-main {
-    flex: 1;
-    /* 占据剩余高度 */
-    padding: 20px;
-    overflow-y: auto;
-    /* 内容过多时只在内部滚动 */
-    position: relative;
+    .water-capsule {
+      background: rgba(255,255,255,0.5); padding: 12px 20px; border-radius: 30px;
+      display: flex; justify-content: space-between; align-items: center;
+      .w-title { font-size: 12px; color: #64748b; font-weight: 600; }
+      .w-val { b { font-size: 20px; color: #3b82f6; } small { color: #94a3b8; } }
+    }
   }
 }
 
-/* 简单的页面切换动画 */
-.fade-transform-leave-active,
-.fade-transform-enter-active {
-  transition: all 0.3s;
+.main-panel {
+  flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 15px;
+  .top-nav {
+    height: 64px; border-radius: 25px; padding: 0 25px; display: flex; justify-content: space-between; align-items: center;
+    .nav-left { 
+      display: flex; align-items: center; gap: 20px; flex: 1;
+      .toggle-btn { cursor: pointer; color: #4a5568; }
+      .breadcrumb { font-weight: 600; font-size: 14px; }
+      .search-capsule {
+        background: rgba(0,0,0,0.04); border-radius: 20px; padding: 8px 18px;
+        display: flex; align-items: center; gap: 10px; width: 260px;
+        input { background: transparent; border: none; outline: none; width: 100%; font-size: 13px; }
+      }
+    }
+    .nav-right { display: flex; align-items: center; gap: 20px; .user-capsule { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 5px 12px; background: rgba(255,255,255,0.6); border-radius: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); .user-name { font-size: 13px; font-weight: 600; } } }
+  }
+  .content-body { flex: 1; overflow-y: auto; padding: 5px; }
 }
 
-.fade-transform-enter-from {
-  opacity: 0;
-  transform: translateX(-30px);
-}
-
-.fade-transform-leave-to {
-  opacity: 0;
-  transform: translateX(30px);
-}
+.tip-fade-enter-active, .tip-fade-leave-active { transition: all 0.5s ease; }
+.tip-fade-enter-from { transform: translateY(10px); opacity: 0; }
+.tip-fade-leave-to { transform: translateY(-10px); opacity: 0; }
 </style>

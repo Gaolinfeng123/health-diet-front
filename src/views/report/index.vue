@@ -6,7 +6,7 @@ import { getUserInfoAPI } from '@/api/user'
 import { getAnalysisReportAPI } from '@/api/analysis'
 import type { RecommendData } from '@/api/recommend'
 import { ElMessage } from 'element-plus'
-import { Calendar, Document, Finished, ForkSpoon } from '@element-plus/icons-vue'
+import { Calendar, Document, Finished, ForkSpoon, Apple, Sunny, Grape } from '@element-plus/icons-vue'
 import { getLocalDateOffsetString, getLocalDateString } from '@/utils/date'
 
 const userStore = useUserStore()
@@ -88,6 +88,20 @@ const extraAdvice = computed(() => recommendData.value?.extraAdvice || [])
 const actualCalories = computed(() => toNumber(actualData.value?.totalCalories))
 const reportDateLabel = computed(() => recommendData.value?.date || recommendDate.value)
 const actualDateLabel = computed(() => actualDate.value)
+
+// 将总结文本中的【xxx】转为高亮 HTML，并按句换行展示
+const summaryTextFormatted = computed(() => {
+  const raw = dailySummary.value?.summaryText || '暂无总结'
+  if (!raw) return ''
+  const escaped = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const withTags = escaped.replace(/【([^】]+)】/g, '<span class="summary-tag">【$1】</span>')
+  return withTags
+    .replace(/。\s+/g, '。<br><br>')
+    .replace(/。/g, '。<br>')
+})
 
 const goalLabel = computed(() => {
   const goal = summary.value?.goal || ''
@@ -174,7 +188,7 @@ onMounted(() => {
 
 <template>
   <div class="report-container" v-loading="loading">
-    <el-row :gutter="20">
+    <el-row :gutter="20" class="report-top-row">
       <el-col :xs="24" :sm="24" :md="16" :lg="16">
         <el-card class="glass-effect detail-card">
           <template #header>
@@ -227,7 +241,7 @@ onMounted(() => {
         </el-card>
       </el-col>
 
-      <el-col :xs="24" :sm="24" :md="8" :lg="8">
+      <el-col :xs="24" :sm="24" :md="8" :lg="8" class="side-col">
         <el-card class="glass-effect side-card">
           <template #header>
             <div class="title">
@@ -237,10 +251,20 @@ onMounted(() => {
           </template>
 
           <div v-if="recommendData" class="side-content">
-            <div class="summary-text">{{ dailySummary?.summaryText || '暂无总结' }}</div>
-            <h4>附加建议</h4>
+            <div class="summary-block">
+              <div class="summary-icons">
+                <div class="summary-icon"><el-icon><Apple /></el-icon></div>
+                <div class="summary-icon"><el-icon><Sunny /></el-icon></div>
+                <div class="summary-icon"><el-icon><Grape /></el-icon></div>
+              </div>
+              <div class="summary-text" v-html="summaryTextFormatted"></div>
+            </div>
+            <h4 class="extra-title">附加建议</h4>
             <ul class="suggestion-list">
-              <li v-for="tip in extraAdvice" :key="tip">{{ tip }}</li>
+              <li v-for="(tip, idx) in extraAdvice" :key="idx">
+                <span class="suggestion-num">{{ idx + 1 }}</span>
+                <span class="suggestion-txt">{{ tip }}</span>
+              </li>
             </ul>
           </div>
           <el-empty v-else description="暂无建议内容" :image-size="60" />
@@ -454,32 +478,128 @@ onMounted(() => {
   }
 }
 
-.side-card {
-  min-height: 540px;
+.report-top-row {
+  align-items: stretch;
 }
 
-.summary-text {
-  padding: 14px;
-  border-radius: 14px;
-  background: #fff3e6;
-  border: 1px solid #ffd7b1;
-  color: #7c2d12;
-  line-height: 1.7;
+.side-col {
+  display: flex;
+}
+
+.side-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 540px;
+
+  :deep(.el-card__body) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+
+.side-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.summary-block {
+  flex: 0 0 auto;
+  margin-bottom: 20px;
+}
+
+.summary-icons {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
-.side-content h4 {
-  margin: 0 0 10px 0;
+.summary-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(255, 182, 118, 0.4), rgba(255, 122, 24, 0.25));
+  border-radius: 50%;
+  color: #c2410c;
+  font-size: 18px;
+}
+
+.summary-text {
+  padding: 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fff8f0 0%, #fff3e6 100%);
+  border: 1px solid #ffd7b1;
+  color: #7c2d12;
+  font-size: 14px;
+  line-height: 1.9;
+  letter-spacing: 0.02em;
+
+  :deep(.summary-tag) {
+    font-weight: 700;
+    color: #c2410c;
+    background: rgba(255, 122, 24, 0.12);
+    padding: 2px 6px;
+    border-radius: 6px;
+  }
+}
+
+.side-content .extra-title {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 700;
   color: #9a3412;
+  flex: 0 0 auto;
 }
 
 .suggestion-list {
+  flex: 1;
   margin: 0;
-  padding-left: 18px;
-  color: #4a5568;
+  padding: 0;
+  list-style: none;
+
   li {
-    margin-bottom: 10px;
-    line-height: 1.6;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 214, 177, 0.5);
+    color: #4a5568;
+    font-size: 13px;
+    line-height: 1.65;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .suggestion-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    line-height: 22px;
+    text-align: center;
+    background: linear-gradient(135deg, #ffb676, #ff7a18);
+    color: #fff;
+    font-weight: 700;
+    font-size: 12px;
+    border-radius: 50%;
+  }
+
+  .suggestion-txt {
+    flex: 1;
+    min-width: 0;
   }
 }
 

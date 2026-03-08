@@ -77,22 +77,50 @@ const pwdStrengthMeta = computed(() => {
   return { label: '强', className: 'strong', percent: 100 }
 })
 
-// --- 初始化 ---
-const initData = async () => {
+// --- 初始化：优先用 store/缓存，避免与 Layout 重复请求；保存后可传 true 强制刷新 ---
+const initData = async (forceRefresh = false) => {
   try {
+    let data = userStore.userInfo
+    if (!forceRefresh && data?.id) {
+      Object.assign(infoForm, {
+        nickname: data.nickname || data.username,
+        gender: data.gender,
+        age: data.age,
+        height: data.height,
+        weight: data.weight,
+        target: data.target,
+        avatar: data.avatar
+      })
+      return
+    }
+    if (!forceRefresh && !data?.id) {
+      const cached = localStorage.getItem('userInfo')
+      if (cached) {
+        try {
+          data = JSON.parse(cached)
+          if (data?.id) {
+            userStore.userInfo = data
+            Object.assign(infoForm, { nickname: data.nickname || data.username, gender: data.gender, age: data.age, height: data.height, weight: data.weight, target: data.target, avatar: data.avatar })
+            return
+          }
+        } catch (_) {}
+      }
+    }
     const res = await getUserInfoAPI()
-    const data = res.data
-    Object.assign(infoForm, {
-      nickname: data.nickname || data.username,
-      gender: data.gender,
-      age: data.age,
-      height: data.height,
-      weight: data.weight,
-      target: data.target,
-      avatar: data.avatar
-    })
+    data = res.data
     userStore.userInfo = data
     localStorage.setItem('userInfo', JSON.stringify(data))
+    if (data) {
+      Object.assign(infoForm, {
+        nickname: data.nickname || data.username,
+        gender: data.gender,
+        age: data.age,
+        height: data.height,
+        weight: data.weight,
+        target: data.target,
+        avatar: data.avatar
+      })
+    }
   } catch (e) { console.error(e) }
 }
 
@@ -110,7 +138,7 @@ const submitInfo = async () => {
   try {
     await updateUserInfoAPI({ ...infoForm, id: userStore.userInfo.id })
     ElMessage.success('个人资料已更新')
-    initData()
+    initData(true)
   } finally { loading.value = false }
 }
 

@@ -43,16 +43,36 @@ const heroAdvice = computed(() => {
   return '今日摄入接近目标，继续保持稳定节奏。'
 })
 
+const resolveUserId = (): number => {
+  const id = userStore.userInfo?.id
+  if (id != null && Number(id) > 0) return Number(id)
+  try {
+    const cached = localStorage.getItem('userInfo')
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      if (parsed?.id) {
+        userStore.userInfo = parsed
+        return Number(parsed.id)
+      }
+    }
+  } catch (_) {}
+  return 0
+}
+
 const loadData = async () => {
   loading.value = true
   try {
-    const userRes = await getUserInfoAPI()
-    userStore.userInfo = userRes.data
+    let userId = resolveUserId()
+    if (!userId) {
+      const userRes = await getUserInfoAPI()
+      userStore.userInfo = userRes.data
+      userId = userRes.data?.id ?? 0
+    }
+    if (!userId) { loading.value = false; return }
     const today = getLocalDateString()
-    const reportRes = await getAnalysisReportAPI({ userId: userRes.data.id, date: today })
+    const reportRes = await getAnalysisReportAPI({ userId, date: today })
     if (reportRes.data) report.value = reportRes.data
-    
-    // 初始化两大图表
+
     initGaugeChart()
     await loadSevenDaysTrend()
   } catch (error) { console.error(error) } finally { loading.value = false }
@@ -89,10 +109,10 @@ const initGaugeChart = () => {
   })
 }
 
-// 2. 加载并渲染七日趋势图
+// 2. 加载并渲染七日趋势图（不含今天，取过去 7 天）
 const loadSevenDaysTrend = async () => {
   if (!trendRef.value) return
-  const dates = [...Array(7)].map((_, i) => getLocalDateOffsetString(i - 6))
+  const dates = [...Array(7)].map((_, i) => getLocalDateOffsetString(i - 7))
   const promises = dates.map(date => getDietListAPI({ pageNum: 1, pageSize: 100, date, userId: userStore.userInfo.id }))
   const results = await Promise.all(promises)
   const caloriesTrend = results.map(res => (res.data?.records || []).reduce((sum: number, item: any) => sum + (item.totalCalories || 0), 0))
@@ -112,6 +132,16 @@ const loadSevenDaysTrend = async () => {
       lineStyle: { width: 4 }
     }]
   })
+}
+
+const openBodyDialog = () => {
+  const u = userStore.userInfo
+  bodyForm.age = u?.age ?? 0
+  bodyForm.height = u?.height ?? 0
+  bodyForm.weight = u?.weight ?? 0
+  bodyForm.target = u?.target ?? 0
+  bodyForm.gender = u?.gender ?? 1
+  dialogVisible.value = true
 }
 
 const handleUpdateBody = async () => {
@@ -173,7 +203,7 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
       <!-- 7日趋势图 -->
       <el-col :xs="24" :sm="24" :md="14" :lg="15">
         <el-card class="glass-effect trend-box">
-          <div ref="trendRef" style="height: 335px; width: 100%"></div>
+          <div ref="trendRef" class="trend-chart-wrap"></div>
         </el-card>
       </el-col>
       
@@ -183,7 +213,7 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
           <template #header>
             <div class="card-title">
               <span>身体档案</span>
-              <el-button link type="primary" :icon="Edit" @click="dialogVisible = true">修改数据</el-button>
+              <el-button link type="primary" :icon="Edit" @click="openBodyDialog">修改数据</el-button>
             </div>
           </template>
           
@@ -235,7 +265,11 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
 </template>
 
 <style scoped lang="scss">
-.dashboard-container { padding-bottom: 20px; }
+.dashboard-container {
+  padding-bottom: 20px;
+  overflow-x: hidden;
+  min-width: 0;
+}
 .hero-card { 
   padding: 30px 40px; border-radius: 32px; display: flex; justify-content: space-between; align-items: center;
   background: linear-gradient(130deg, rgba(255, 194, 140, 0.4), rgba(255,255,255,0.58));
@@ -262,7 +296,22 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
     }
   }
 }
-.trend-box { border-radius: 32px; padding: 10px; animation: fade-up 0.55s ease; }
+.trend-box {
+  border-radius: 32px;
+  padding: 10px;
+  animation: fade-up 0.55s ease;
+  overflow: hidden;
+  :deep(.el-card__body) {
+    overflow: hidden;
+    padding: 10px 15px;
+  }
+}
+.trend-chart-wrap {
+  height: 335px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
 
 .info-card { 
   height: 380px; position: relative; overflow: hidden; animation: fade-up 0.6s ease;

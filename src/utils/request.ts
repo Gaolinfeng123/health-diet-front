@@ -2,10 +2,37 @@ import axios from 'axios'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 
-const request = axios.create({
+const axiosInstance = axios.create({
     baseURL: '/api',
     timeout: 5000
 })
+
+// ==========================================
+// 并发请求去重：相同请求在未返回前只发一次，降低子菜单切换时的重复调用
+// ==========================================
+const pending = new Map<string, Promise<any>>()
+
+function buildDedupeKey(config: any): string {
+    const method = (config.method || 'get').toLowerCase()
+    const url = config.url || ''
+    const params = config.params != null ? JSON.stringify(config.params) : ''
+    const data = config.data != null ? JSON.stringify(config.data) : ''
+    return `${method}:${url}:${params}:${data}`
+}
+
+const originalRequest = axiosInstance.request.bind(axiosInstance)
+axiosInstance.request = function (config: any) {
+    const key = buildDedupeKey(config)
+    const existing = pending.get(key)
+    if (existing) return existing
+    const p = originalRequest(config).finally(() => {
+        pending.delete(key)
+    })
+    pending.set(key, p)
+    return p
+}
+
+const request = axiosInstance
 
 // ==========================================
 // 核心修复：全局报错防抖工具

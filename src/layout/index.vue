@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useRouter, useRoute } from 'vue-router'
 import { getUserInfoAPI } from '@/api/user'
-import { getTodayTagText } from '@/utils/date'
+import { getLocalDateString, getTodayTagText } from '@/utils/date'
 import { 
   House, Food, User, CaretBottom, Setting, 
   Fold, Expand, Bell, Search, IceTea, PieChart, Sunny, ChatDotRound, Document
@@ -13,7 +13,11 @@ const userStore = useUserStore()
 const router = useRouter()
 const route = useRoute()
 const isCollapse = ref(false)
+const NARROW_BREAKPOINT = 1280
+const isNarrow = ref(typeof window !== 'undefined' && window.innerWidth <= NARROW_BREAKPOINT)
 const defaultAvatar = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
+
+const menuCollapsed = computed(() => isCollapse.value || isNarrow.value)
 
 const tipsList = ['餐后散步 20 分钟，有助于平稳血糖。', '每餐先吃蔬菜再吃主食，更容易控量。', '优先选择清蒸和炖煮，减少额外油脂摄入。', '晚餐尽量提前 2-3 小时，睡眠质量会更好。']
 const currentTipIndex = ref(0)
@@ -26,7 +30,20 @@ const lastDrinkTime = ref(localStorage.getItem('last_drink_time') || '')
 const timeElapsedStr = ref('')
 const nowTick = ref(Date.now())
 
+const syncWaterDaily = () => {
+  const today = getLocalDateString()
+  const savedDay = localStorage.getItem('water_day') || ''
+  if (savedDay !== today) {
+    localStorage.setItem('water_day', today)
+    waterCount.value = 0
+    lastDrinkTime.value = ''
+    localStorage.setItem('water_count', '0')
+    localStorage.removeItem('last_drink_time')
+  }
+}
+
 const updateTimeElapsed = () => {
+  syncWaterDaily()
   nowTick.value = Date.now()
   if (!lastDrinkTime.value) { timeElapsedStr.value = '尚未饮水'; return }
   const diff = Math.floor((new Date().getTime() - new Date(lastDrinkTime.value).getTime()) / (1000 * 60))
@@ -34,6 +51,7 @@ const updateTimeElapsed = () => {
 }
 
 const addWater = () => {
+  syncWaterDaily()
   waterCount.value++; const now = new Date().toISOString()
   lastDrinkTime.value = now; localStorage.setItem('water_count', waterCount.value.toString())
   localStorage.setItem('last_drink_time', now); updateTimeElapsed()
@@ -61,13 +79,18 @@ const displayName = computed(() => userStore.userInfo.nickname || userStore.user
 const syncUserInfo = async () => {
   if (!userStore.token) return
   const cached = localStorage.getItem('userInfo')
-  if (!userStore.userInfo.username && cached) {
+  if (!userStore.userInfo?.id && cached) {
     try {
-      userStore.userInfo = JSON.parse(cached)
+      const parsed = JSON.parse(cached)
+      if (parsed?.id) {
+        userStore.userInfo = parsed
+        return
+      }
     } catch (e) {
       console.error('user cache parse failed')
     }
   }
+  if (userStore.userInfo?.id) return
   try {
     const res = await getUserInfoAPI()
     if (res?.data) {
@@ -79,13 +102,21 @@ const syncUserInfo = async () => {
   }
 }
 
+const updateNarrow = () => {
+  if (typeof window !== 'undefined') isNarrow.value = window.innerWidth <= NARROW_BREAKPOINT
+}
+
 onMounted(() => {
+  updateNarrow()
+  window.addEventListener('resize', updateNarrow)
   syncUserInfo()
+  syncWaterDaily()
   updateTimeElapsed()
   rotateTips()
   elapsedTimer = setInterval(updateTimeElapsed, 60000)
 })
 onUnmounted(() => {
+  window.removeEventListener('resize', updateNarrow)
   clearInterval(tipTimer)
   clearInterval(elapsedTimer)
 })
@@ -94,14 +125,14 @@ onUnmounted(() => {
 <template>
   <div class="app-layout">
     <!-- 侧边栏：磨砂质感 -->
-    <aside class="side-panel glass-effect" :class="{ 'is-collapsed': isCollapse }">
+    <aside class="side-panel glass-effect" :class="{ 'is-collapsed': menuCollapsed }">
       <div class="side-top-nav">
         <div class="side-logo" @click="router.push('/')">
           <div class="logo-inner">ZS</div>
-          <span class="logo-text" v-show="!isCollapse">智膳伴侣</span>
+          <span class="logo-text" v-show="!menuCollapsed">智膳伴侣</span>
         </div>
         
-        <el-menu :default-active="route.path" :collapse="isCollapse" router class="menu-list">
+        <el-menu :default-active="route.path" :collapse="menuCollapsed" router class="menu-list">
           <el-menu-item index="/dashboard"><el-icon><House /></el-icon><template #title>首页</template></el-menu-item>
           <el-menu-item index="/diet"><el-icon><Food /></el-icon><template #title>饮食记录</template></el-menu-item>
           <el-menu-item index="/report"><el-icon><PieChart /></el-icon><template #title>分析报告</template></el-menu-item>
@@ -116,7 +147,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 侧边栏下半部分：图片与工具 -->
-      <div class="side-widget-area" v-show="!isCollapse">
+      <div class="side-widget-area" v-show="!menuCollapsed">
         <!-- 每日建议 -->
         <div class="advice-bubble">
           <div class="label"><el-icon><Sunny /></el-icon> 每日健康建议</div>
@@ -145,7 +176,7 @@ onUnmounted(() => {
       <!-- 顶部导航：[折叠] [面包屑] [搜索] -->
       <header class="top-nav glass-effect">
         <div class="nav-left">
-          <div class="toggle-btn" @click="isCollapse = !isCollapse"><el-icon :size="20"><component :is="isCollapse ? Expand : Fold" /></el-icon></div>
+          <div class="toggle-btn" @click="isCollapse = !isCollapse"><el-icon :size="20"><component :is="menuCollapsed ? Expand : Fold" /></el-icon></div>
           <div class="today-tag">{{ todayTag }}</div>
           <el-breadcrumb separator="/" class="breadcrumb"><el-breadcrumb-item>{{ breadcrumbName }}</el-breadcrumb-item></el-breadcrumb>
           <div class="search-capsule">

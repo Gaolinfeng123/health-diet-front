@@ -52,6 +52,11 @@ const router = createRouter({
                     path: 'report',
                     name: 'Report',
                     component: () => import('@/views/report/index.vue')
+                },
+                {
+                    path: 'chat',
+                    name: 'Chat',
+                    component: () => import('@/views/chat/index.vue')
                 }
             ]
         }
@@ -59,7 +64,7 @@ const router = createRouter({
 })
 
 // 路由守卫 (保持不变)
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
     const userStore = useUserStore()
     if (to.path !== '/login' && !userStore.token) {
         next('/login')

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onUnmounted } from 'vue'
-import { User, Lock, ArrowLeft, ArrowRight, Check, Close, Picture } from '@element-plus/icons-vue'
+import { ref, reactive, onUnmounted } from 'vue'
+import { User, Lock, ArrowRight, Check, Picture } from '@element-plus/icons-vue'
 import { loginAPI, registerAPI, getCaptchaAPI } from '@/api/user'
 import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
@@ -28,13 +28,31 @@ const form = reactive({
   captchaCode: ''
 })
 
-// --- 辅助显示 ---
-const targetLabel = computed(() => {
-  const map: Record<number, string> = { '-1': '减脂', '0': '维持', '1': '增肌' }
-  return map[form.target]
-})
+const USERNAME_REGEX = /^[A-Za-z0-9_]{4,20}$/
+const PASSWORD_REGEX = /^[\x21-\x7E]{6,32}$/
 
 // --- 逻辑方法 ---
+
+const validateRegisterAccountStep = () => {
+  form.username = form.username.trim()
+  if (!form.username || !form.password) {
+    ElMessage.warning('请填写完整账号')
+    return false
+  }
+  if (!USERNAME_REGEX.test(form.username)) {
+    ElMessage.warning('账号仅支持4-20位英文、数字或下划线，不支持中文')
+    return false
+  }
+  if (!PASSWORD_REGEX.test(form.password)) {
+    ElMessage.warning('密码仅支持6-32位英文字符、数字或符号，不支持中文和空格')
+    return false
+  }
+  if (form.password !== form.confirmPassword) {
+    ElMessage.warning('两次密码不一致')
+    return false
+  }
+  return true
+}
 
 const refreshCaptcha = async () => {
   try {
@@ -78,15 +96,17 @@ const handleLogin = async () => {
 
 const nextStep = () => {
   if (activeStep.value === 0) {
-    if (!form.username || !form.password) return ElMessage.warning('请填写完整账号')
-    if (form.password.length < 6) return ElMessage.warning('密码需大于6位')
-    if (form.password !== form.confirmPassword) return ElMessage.warning('两次密码不一致')
+    if (!validateRegisterAccountStep()) return
   }
   activeStep.value++
   if (activeStep.value === 2) refreshCaptcha() // 进入最后确认页时刷验证码
 }
 
 const handleRegisterSubmit = async () => {
+  if (!validateRegisterAccountStep()) {
+    activeStep.value = 0
+    return
+  }
   if (!form.captchaCode) return ElMessage.warning('请输入验证码')
   loading.value = true
   try {
@@ -124,9 +144,10 @@ onUnmounted(() => clearInterval(timer))
       <!-- 左侧：品牌展示 -->
       <div class="brand-side">
         <div class="logo-area">
-          <div class="logo-icon">HD</div>
-          <h1>Health Diet</h1>
+          <div class="logo-icon">ZS</div>
+          <h1>智膳伴侣</h1>
         </div>
+        <div class="ai-pill">云膳 AI 营养助手</div>
         <p class="slogan">记录你的每一份自律，<br/>遇见更美好的自己。</p>
         <!-- 复用之前的侧边栏插画，保持一致性 -->
         <img src="@/assets/side-health.png" class="brand-img" />
@@ -137,7 +158,7 @@ onUnmounted(() => clearInterval(timer))
         <transition name="fade" mode="out-in">
           <!-- 登录视图 -->
           <div v-if="isLogin" class="login-view" key="login">
-            <h2>欢迎登录</h2>
+            <h2>欢迎回来</h2>
             <el-form label-position="top">
               <el-form-item>
                 <el-input v-model="form.username" placeholder="账号" :prefix-icon="User" class="capsule-input" />
@@ -172,9 +193,9 @@ onUnmounted(() => clearInterval(timer))
             <!-- 步骤0: 账号设置 -->
             <div v-if="activeStep === 0" class="step-content">
               <el-form label-position="top">
-                <el-form-item><el-input v-model="form.username" placeholder="设置账号" :prefix-icon="User" /></el-form-item>
-                <el-form-item><el-input v-model="form.password" type="password" placeholder="设置密码" :prefix-icon="Lock" show-password /></el-form-item>
-                <el-form-item><el-input v-model="form.confirmPassword" type="password" placeholder="确认密码" :prefix-icon="Lock" /></el-form-item>
+                <el-form-item><el-input v-model="form.username" maxlength="20" placeholder="设置账号（英文/数字/下划线）" :prefix-icon="User" /></el-form-item>
+                <el-form-item><el-input v-model="form.password" maxlength="32" type="password" placeholder="设置密码（不支持中文）" :prefix-icon="Lock" show-password /></el-form-item>
+                <el-form-item><el-input v-model="form.confirmPassword" maxlength="32" type="password" placeholder="确认密码" :prefix-icon="Lock" /></el-form-item>
                 <el-button type="primary" class="submit-btn" @click="nextStep">下一步 <el-icon><ArrowRight /></el-icon></el-button>
               </el-form>
             </div>
@@ -212,10 +233,13 @@ onUnmounted(() => clearInterval(timer))
             <div v-if="activeStep === 2" class="step-content">
               <el-form label-position="top">
                 <el-form-item label="您的目标">
-                  <el-radio-group v-model="form.target" style="width:100%">
+                  <el-radio-group v-model="form.target" class="goal-radios">
                     <el-radio-button :label="-1">减脂</el-radio-button>
                     <el-radio-button :label="0">维持</el-radio-button>
                     <el-radio-button :label="1">增肌</el-radio-button>
+                    <el-radio-button :label="2">糖尿病控糖</el-radio-button>
+                    <el-radio-button :label="3">高血压低盐</el-radio-button>
+                    <el-radio-button :label="4">高血脂低脂</el-radio-button>
                   </el-radio-group>
                 </el-form-item>
                 <div class="captcha-row mb-20">
@@ -224,7 +248,7 @@ onUnmounted(() => clearInterval(timer))
                 </div>
                 <div class="btn-group">
                   <el-button round @click="activeStep--">上一步</el-button>
-                  <el-button type="success" round @click="handleRegisterSubmit" :loading="loading">确认注册</el-button>
+                  <el-button type="primary" round @click="handleRegisterSubmit" :loading="loading">确认注册</el-button>
                 </div>
               </el-form>
             </div>
@@ -259,35 +283,54 @@ onUnmounted(() => clearInterval(timer))
 .blob {
   position: absolute; border-radius: 50%; filter: blur(60px); z-index: 1; opacity: 0.6;
 }
-.blob-1 { width: 400px; height: 400px; background: #34d399; top: -100px; left: -100px; }
-.blob-2 { width: 300px; height: 300px; background: #60a5fa; bottom: -50px; right: -50px; }
+.blob-1 { width: 400px; height: 400px; background: #ffd6b3; top: -100px; left: -100px; }
+.blob-2 { width: 300px; height: 300px; background: #ffb676; bottom: -50px; right: -50px; }
 
 .glass-login-card {
   width: 900px; height: 550px;
   display: flex; z-index: 10;
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.56);
   backdrop-filter: blur(25px);
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 40px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   transition: all 0.5s ease;
+  animation: fade-up 0.45s ease;
 
   &.register-mode { height: 650px; }
 }
 
 .brand-side {
-  width: 40%; background: rgba(16, 185, 129, 0.05);
+  width: 40%;
+  background: linear-gradient(165deg, rgba(255, 218, 183, 0.9), rgba(255, 180, 120, 0.62));
   padding: 50px; display: flex; flex-direction: column; justify-content: center;
   border-right: 1px solid rgba(255, 255, 255, 0.3);
 
   .logo-area {
     display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
-    .logo-icon { width: 40px; height: 40px; background: #10b981; border-radius: 12px; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-    h1 { font-size: 24px; color: #10b981; margin: 0; }
+    .logo-icon { width: 40px; height: 40px; background: #ff7a18; border-radius: 12px; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    h1 { font-size: 24px; color: #ea580c; margin: 0; }
+  }
+  .ai-pill {
+    display: inline-flex;
+    width: fit-content;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.75);
+    color: #9a3412;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 14px;
   }
   .slogan { font-size: 18px; color: #4a5568; line-height: 1.6; font-weight: 500; }
-  .brand-img { width: 120%; margin-left: -10%; margin-top: 30px; filter: drop-shadow(0 15px 15px rgba(0,0,0,0.05)); }
+  .brand-img {
+    width: 120%;
+    margin-left: -10%;
+    margin-top: 24px;
+    filter: drop-shadow(0 20px 22px rgba(0,0,0,0.09));
+    animation: soft-float 4s ease-in-out infinite;
+  }
 }
 
 .form-side {
@@ -297,9 +340,9 @@ onUnmounted(() => clearInterval(timer))
 
 .submit-btn {
   width: 100%; height: 50px; border-radius: 18px !important; font-size: 16px; font-weight: bold;
-  background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
+  background: linear-gradient(135deg, #ff9838 0%, #ff7a18 100%) !important;
   border: none; margin-top: 10px;
-  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 10px 20px rgba(255, 122, 24, 0.25);
 }
 
 .mode-switch { text-align: center; margin-top: 25px; color: #64748b; font-size: 14px; }
@@ -325,11 +368,35 @@ onUnmounted(() => clearInterval(timer))
 
 .success-view {
   text-align: center;
-  .check-icon { width: 70px; height: 70px; background: #10b981; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 20px; }
+  .check-icon { width: 70px; height: 70px; background: #ff7a18; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 20px; }
   p { color: #64748b; margin-bottom: 25px; }
 }
 
+.goal-radios {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 6px;
+
+  :deep(.el-radio-button__inner) {
+    border-radius: 12px !important;
+    border: 1px solid #e2e8f0 !important;
+    margin: 0;
+  }
+}
+
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
 
 /* 深度覆盖输入框样式 */
 :deep(.el-input__wrapper) {
@@ -338,6 +405,39 @@ onUnmounted(() => clearInterval(timer))
   box-shadow: none !important;
   border: 1px solid rgba(255,255,255,0.8) !important;
   height: 50px;
-  &:hover { border-color: #10b981 !important; }
+  &:hover { border-color: #ff7a18 !important; }
+}
+
+@media (max-width: 960px) {
+  .glass-login-card {
+    width: calc(100vw - 24px);
+    height: auto;
+    min-height: 620px;
+    flex-direction: column;
+    &.register-mode {
+      height: auto;
+    }
+  }
+  .brand-side,
+  .form-side {
+    width: 100%;
+    padding: 24px;
+  }
+  .brand-side {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+    .brand-img {
+      width: 100%;
+      margin: 12px 0 0;
+      max-height: 220px;
+      object-fit: contain;
+    }
+  }
+  .form-side {
+    h2 {
+      font-size: 24px;
+      margin-bottom: 18px;
+    }
+  }
 }
 </style>

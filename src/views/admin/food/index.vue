@@ -4,7 +4,55 @@ import { Search, Plus, Delete } from '@element-plus/icons-vue'
 import { getFoodListAPI, addFoodAPI, deleteFoodAPI } from '@/api/food'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const tableData = ref([])
+type FoodForm = {
+  name: string
+  calories: number
+  protein: number
+  fat: number
+  carb: number
+  foodCategory: string
+  giLevel: string
+  sodiumMg: number
+  saturatedFat: number
+  fiber: number
+  sugar: number
+  breakfastFriendly: boolean
+  dinnerFriendly: boolean
+}
+
+const createDefaultForm = (): FoodForm => ({
+  name: '',
+  calories: 0,
+  protein: 0,
+  fat: 0,
+  carb: 0,
+  foodCategory: '',
+  giLevel: '',
+  sodiumMg: 0,
+  saturatedFat: 0,
+  fiber: 0,
+  sugar: 0,
+  breakfastFriendly: false,
+  dinnerFriendly: false
+})
+
+const categoryOptions = [
+  { label: '主食', value: 'staple' },
+  { label: '蛋白质', value: 'protein' },
+  { label: '蔬菜', value: 'vegetable' },
+  { label: '水果', value: 'fruit' },
+  { label: '乳制品', value: 'dairy' },
+  { label: '饮品', value: 'drink' },
+  { label: '零食', value: 'snack' }
+]
+
+const giLevelOptions = [
+  { label: '低 GI', value: 'low' },
+  { label: '中 GI', value: 'medium' },
+  { label: '高 GI', value: 'high' }
+]
+
+const tableData = ref<any[]>([])
 const loading = ref(false)
 const total = ref(0)
 
@@ -15,7 +63,7 @@ const queryParams = reactive({
 })
 
 const dialogVisible = ref(false)
-const form = reactive({ name: '', calories: 0, protein: 0, fat: 0, carb: 0 })
+const form = reactive(createDefaultForm())
 
 const currentPageCount = computed(() => tableData.value.length)
 const avgCalories = computed(() => {
@@ -48,8 +96,16 @@ const handlePageChange = (newPage: number) => {
 }
 
 const openAdd = () => {
-  Object.assign(form, { name: '', calories: 0, protein: 0, fat: 0, carb: 0 })
+  Object.assign(form, createDefaultForm())
   dialogVisible.value = true
+}
+
+const formatCategory = (value: string) => {
+  return categoryOptions.find(item => item.value === value)?.label || value || '-'
+}
+
+const formatGiLevel = (value: string) => {
+  return giLevelOptions.find(item => item.value === value)?.label || value || '-'
 }
 
 const handleSubmit = async () => {
@@ -108,7 +164,7 @@ onMounted(() => { loadData() })
           <b>{{ currentPageCount }}</b>
         </div>
         <div class="stat-item">
-          <span>平均热量</span>
+          <span>平均热量 / 100g</span>
           <b>{{ avgCalories }}<small>kcal</small></b>
         </div>
       </el-card>
@@ -116,7 +172,7 @@ onMounted(() => { loadData() })
 
     <el-card shadow="never" class="table-card">
       <div class="table-head">
-        <h3>食物营养数据列表</h3>
+        <h3>食物营养数据列表（每 100g）</h3>
         <el-tag round type="warning">{{ pageRangeLabel }}</el-tag>
       </div>
       <div class="table-scroll">
@@ -124,6 +180,16 @@ onMounted(() => { loadData() })
           <el-table-column type="index" label="#" width="60" />
           <el-table-column prop="id" label="ID" width="86" />
           <el-table-column prop="name" label="名称" min-width="200" />
+          <el-table-column prop="foodCategory" label="分类" width="120">
+            <template #default="s">
+              <el-tag effect="plain">{{ formatCategory(s.row.foodCategory) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="giLevel" label="GI" width="100">
+            <template #default="s">
+              <el-tag type="success" effect="light">{{ formatGiLevel(s.row.giLevel) }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="calories" label="热量" width="130">
             <template #default="s">
               <el-tag type="warning">{{s.row.calories}} kcal</el-tag>
@@ -132,6 +198,15 @@ onMounted(() => { loadData() })
           <el-table-column prop="protein" label="蛋白(g)" width="120" />
           <el-table-column prop="fat" label="脂肪(g)" width="120" />
           <el-table-column prop="carb" label="碳水(g)" width="120" />
+          <el-table-column prop="fiber" label="纤维(g)" width="120" />
+          <el-table-column prop="sugar" label="糖(g)" width="120" />
+          <el-table-column prop="sodiumMg" label="钠(mg)" width="120" />
+          <el-table-column prop="saturatedFat" label="饱和脂肪(g)" width="130" />
+          <el-table-column label="适配餐次" min-width="140">
+            <template #default="s">
+              <span>{{ s.row.breakfastFriendly ? '早餐' : '-' }} / {{ s.row.dinnerFriendly ? '晚餐' : '-' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="110" fixed="right">
             <template #default="s">
               <el-button type="danger" link :icon="Delete" @click="handleDelete(s.row.id)">删除</el-button>
@@ -144,14 +219,35 @@ onMounted(() => { loadData() })
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="录入新食物" width="460px" class="food-dialog">
-      <el-form label-width="100px" size="large">
+    <el-dialog v-model="dialogVisible" title="录入新食物" width="680px" class="food-dialog">
+      <el-form label-width="110px" size="large" class="food-form-grid">
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="热量"><el-input-number v-model="form.calories" :min="0" /><span class="unit">kcal</span></el-form-item>
-        <el-divider>营养素</el-divider>
-        <el-form-item label="蛋白质"><el-input-number v-model="form.protein" :min="0" :precision="1" /><span class="unit">g</span></el-form-item>
-        <el-form-item label="脂肪"><el-input-number v-model="form.fat" :min="0" :precision="1" /><span class="unit">g</span></el-form-item>
-        <el-form-item label="碳水"><el-input-number v-model="form.carb" :min="0" :precision="1" /><span class="unit">g</span></el-form-item>
+        <el-form-item label="食物分类">
+          <el-select v-model="form.foodCategory" placeholder="选择分类" style="width: 100%">
+            <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="GI 等级">
+          <el-select v-model="form.giLevel" placeholder="选择 GI 等级" style="width: 100%">
+            <el-option v-for="item in giLevelOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="热量 / 100g"><el-input-number v-model="form.calories" :min="0" style="width: 100%" /><span class="unit">kcal</span></el-form-item>
+        <el-divider>营养素（每 100g）</el-divider>
+        <el-form-item label="蛋白质"><el-input-number v-model="form.protein" :min="0" :precision="1" style="width: 100%" /><span class="unit">g</span></el-form-item>
+        <el-form-item label="脂肪"><el-input-number v-model="form.fat" :min="0" :precision="1" style="width: 100%" /><span class="unit">g</span></el-form-item>
+        <el-form-item label="碳水"><el-input-number v-model="form.carb" :min="0" :precision="1" style="width: 100%" /><span class="unit">g</span></el-form-item>
+        <el-form-item label="纤维"><el-input-number v-model="form.fiber" :min="0" :precision="1" style="width: 100%" /><span class="unit">g</span></el-form-item>
+        <el-form-item label="糖"><el-input-number v-model="form.sugar" :min="0" :precision="1" style="width: 100%" /><span class="unit">g</span></el-form-item>
+        <el-form-item label="钠"><el-input-number v-model="form.sodiumMg" :min="0" :precision="1" style="width: 100%" /><span class="unit">mg</span></el-form-item>
+        <el-form-item label="饱和脂肪"><el-input-number v-model="form.saturatedFat" :min="0" :precision="1" style="width: 100%" /><span class="unit">g</span></el-form-item>
+        <el-divider>推荐餐次</el-divider>
+        <el-form-item label="早餐友好">
+          <el-switch v-model="form.breakfastFriendly" />
+        </el-form-item>
+        <el-form-item label="晚餐友好">
+          <el-switch v-model="form.dinnerFriendly" />
+        </el-form-item>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="handleSubmit">确认</el-button></template>
     </el-dialog>
@@ -342,6 +438,16 @@ onMounted(() => { loadData() })
   }
   :deep(.el-dialog__footer) {
     padding: 8px 18px 16px;
+  }
+}
+
+.food-form-grid {
+  :deep(.el-form-item) {
+    margin-bottom: 16px;
+  }
+
+  :deep(.el-divider) {
+    margin: 8px 0 16px;
   }
 }
 

@@ -1,23 +1,25 @@
-<script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+﻿<script setup lang="ts">
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import * as echarts from 'echarts'
-import { getAnalysisReportAPI } from '@/api/analysis'
-import { getUserInfoAPI, updateUserInfoAPI } from '@/api/user'
-import { getDietListAPI } from '@/api/diet'
+import { getAnalysisReportAPI, getAnalysisTrendAPI } from '@/api/analysis'
+import { updateUserInfoAPI } from '@/api/user'
 import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
 import { Trophy, Edit, Apple, Guide, Aim, Location, Male, Female, Sunrise } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { getLocalDateOffsetString, getLocalDateString } from '@/utils/date'
+import { getLocalDateString } from '@/utils/date'
+import { toNumber } from '@/utils/health'
+import { useUserIdentity } from '@/composables/useUserIdentity'
 
 const userStore = useUserStore()
 const router = useRouter()
-const loading = ref(false)
+const summaryLoading = ref(false)
+const trendLoading = ref(false)
 
 // 页面报表数据
-const report = ref({
+const report = ref<Record<string, any>>({
   totalCalories: 0, recommendCalories: 2000, diff: 0,
-  totalProtein: 0, totalFat: 0, totalCarb: 0, advice: '正在深度分析您的健康数据...'
+  totalProtein: 0, totalFat: 0, totalCarb: 0, advice: '正在分析你的健康数据...'
 })
 
 let chartInstance: any = null
@@ -25,69 +27,109 @@ let trendInstance: any = null
 const chartRef = ref(null)
 const trendRef = ref(null)
 const dialogVisible = ref(false)
-const bodyForm = reactive({ age: 0, height: 0, weight: 0, target: 0, gender: 1 })
+const bodyForm = reactive({ age: 0, height: 0, weight: 0, target: 0, gender: 1, activityLevel: 0 })
+const { resolveUserId } = useUserIdentity()
 
-// --- 核心计算属性 ---
+const activityLevelMap: Record<number, string> = {
+  1: '久坐少动',
+  2: '轻量活动',
+  3: '中等活动',
+  4: '高活动量'
+}
+
+const normalizeActivityLevel = (value: unknown) => {
+  const legacyMap: Record<string, number> = {
+    sedentary: 1,
+    light: 2,
+    moderate: 3,
+    active: 4,
+    very_active: 4
+  }
+
+  if (typeof value === 'string' && legacyMap[value]) return legacyMap[value]
+  const num = Number(value)
+  return Number.isInteger(num) && num >= 1 && num <= 4 ? num : 0
+}
+
+const activityLevelLabel = computed(() => {
+  return activityLevelMap[normalizeActivityLevel(userStore.userInfo.activityLevel || userStore.userInfo.activity_level)] || '未设置'
+})
+
+const reportTargetCalories = computed(() => {
+  return Math.round(
+    toNumber(
+      report.value.targetCalories ??
+      report.value.recommendCalories ??
+      report.value.caloriesTarget
+    ) || 0
+  )
+})
+
+// 核心计算属性
 const bmi = computed(() => {
   const h = userStore.userInfo.height; const w = userStore.userInfo.weight
   return h && w ? parseFloat((w / ((h / 100) * (h / 100))).toFixed(1)) : 0
 })
 
 const heroAdvice = computed(() => {
-  const target = Math.round(report.value.recommendCalories || 0)
-  const total = Math.round(report.value.totalCalories || 0)
-  if (!target) return '从今天开始记录饮食，云膳 AI 会给你更精准的建议。'
+  const target = reportTargetCalories.value
+  const total = Math.round(toNumber(report.value.totalCalories ?? report.value.actualCalories))
+  if (!target) return '从今天开始记录饮食，系统会给你更准确的建议。'
   const diff = total - target
-  if (diff > 250) return `今日已超出目标约 ${diff} kcal，晚餐建议减油少盐并适当步行。`
-  if (diff < -250) return `今日摄入较目标少约 ${Math.abs(diff)} kcal，可补充优质蛋白和蔬菜。`
+  if (diff > 250) return `今日摄入比目标高约 ${diff} kcal，晚餐建议减少油盐并适当活动。`
+  if (diff < -250) return `今日摄入比目标少约 ${Math.abs(diff)} kcal，可以补充优质蛋白和蔬菜。`
   return '今日摄入接近目标，继续保持稳定节奏。'
 })
 
-const resolveUserId = (): number => {
-  const id = userStore.userInfo?.id
-  if (id != null && Number(id) > 0) return Number(id)
+const loadSummary = async (userId: number, today: string) => {
+  summaryLoading.value = true
   try {
-    const cached = localStorage.getItem('userInfo')
-    if (cached) {
-      const parsed = JSON.parse(cached)
-      if (parsed?.id) {
-        userStore.userInfo = parsed
-        return Number(parsed.id)
-      }
+    const reportRes = await getAnalysisReportAPI({ userId, date: today })
+    if (reportRes.data) {
+      report.value = reportRes.data
+      initGaugeChart()
     }
-  } catch (_) {}
-  return 0
+  } catch (error) {
+    console.error(error)
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
+const loadTrend = async (userId: number) => {
+  trendLoading.value = true
+  try {
+    const trendRes = await getAnalysisTrendAPI({ userId, days: 7 })
+    renderTrendChart(normalizeTrendPoints(trendRes.data))
+  } catch (error) {
+    console.error(error)
+  } finally {
+    trendLoading.value = false
+  }
 }
 
 const loadData = async () => {
-  loading.value = true
-  try {
-    let userId = resolveUserId()
-    if (!userId) {
-      const userRes = await getUserInfoAPI()
-      userStore.userInfo = userRes.data
-      userId = userRes.data?.id ?? 0
-    }
-    if (!userId) { loading.value = false; return }
-    const today = getLocalDateString()
-    const reportRes = await getAnalysisReportAPI({ userId, date: today })
-    if (reportRes.data) report.value = reportRes.data
+  const userId = await resolveUserId()
+  if (!userId) return
 
-    initGaugeChart()
-    await loadSevenDaysTrend()
-  } catch (error) { console.error(error) } finally { loading.value = false }
+  const today = getLocalDateString()
+  void loadSummary(userId, today)
+  // 趋势图放到下一轮事件循环再加载，避免占住首页首屏
+  window.setTimeout(() => {
+    void loadTrend(userId)
+  }, 0)
 }
 
-// 1. 今日热量仪表盘 (带标题，修复拥挤)
+// 1. 今日热量仪表盘
 const initGaugeChart = () => {
   if (!chartRef.value) return
   if (chartInstance) chartInstance.dispose()
   chartInstance = echarts.init(chartRef.value)
-  const target = Math.round(report.value.recommendCalories || 2000)
+  const target = Math.max(reportTargetCalories.value, 0) || 2000
   
   chartInstance.setOption({
     title: { 
-      text: '今日热量达成', 
+      text: '今日热量达成',
       left: 'center', bottom: '12%',
       textStyle: { color: '#7c2d12', fontSize: 14, fontWeight: 'normal' }
     },
@@ -104,18 +146,27 @@ const initGaugeChart = () => {
         offsetCenter: [0, '15%'], fontSize: 32, fontWeight: '800', 
         color: '#ea580c', formatter: '{value} kcal' 
       },
-      data: [{ value: Math.round(report.value.totalCalories) }]
+      data: [{ value: Math.round(toNumber(report.value.totalCalories ?? report.value.actualCalories)) }]
     }]
   })
 }
 
-// 2. 加载并渲染七日趋势图（不含今天，取过去 7 天）
-const loadSevenDaysTrend = async () => {
+const normalizeTrendPoints = (raw: any) => {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw?.points || raw?.records || raw?.list || raw?.trend || []
+
+  return list.map((item: any) => ({
+    date: String(item.date || item.day || item.statDate || ''),
+    calories: toNumber(item.calories ?? item.totalCalories ?? item.value)
+  }))
+}
+
+// 2. 渲染七日趋势图
+const renderTrendChart = (points: Array<{ date: string; calories: number }>) => {
   if (!trendRef.value) return
-  const dates = [...Array(7)].map((_, i) => getLocalDateOffsetString(i - 7))
-  const promises = dates.map(date => getDietListAPI({ pageNum: 1, pageSize: 100, date, userId: userStore.userInfo.id }))
-  const results = await Promise.all(promises)
-  const caloriesTrend = results.map(res => (res.data?.records || []).reduce((sum: number, item: any) => sum + (item.totalCalories || 0), 0))
+  const dates = points.map((item: { date: string }) => item.date.slice(5) || item.date)
+  const caloriesTrend = points.map((item: { calories: number }) => item.calories)
   
   if (trendInstance) trendInstance.dispose()
   trendInstance = echarts.init(trendRef.value)
@@ -123,7 +174,7 @@ const loadSevenDaysTrend = async () => {
     title: { text: '近七日热量摄入趋势 (kcal)', left: 'center', top: '10', textStyle: { fontSize: 14, color: '#7c2d12' } },
     grid: { left: '4%', right: '4%', bottom: '10%', top: '22%', containLabel: true },
     tooltip: { trigger: 'axis', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 12 },
-    xAxis: { type: 'category', boundaryGap: false, data: dates.map(d => d.slice(5)), axisLine: { show: false } },
+    xAxis: { type: 'category', boundaryGap: false, data: dates.map((d: string) => d), axisLine: { show: false } },
     yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed', color: '#f1f5f9' } } },
     series: [{ 
       data: caloriesTrend, type: 'line', smooth: true, symbolSize: 10, 
@@ -134,6 +185,11 @@ const loadSevenDaysTrend = async () => {
   })
 }
 
+const handleResize = () => {
+  chartInstance?.resize()
+  trendInstance?.resize()
+}
+
 const openBodyDialog = () => {
   const u = userStore.userInfo
   bodyForm.age = u?.age ?? 0
@@ -141,19 +197,48 @@ const openBodyDialog = () => {
   bodyForm.weight = u?.weight ?? 0
   bodyForm.target = u?.target ?? 0
   bodyForm.gender = u?.gender ?? 1
+  bodyForm.activityLevel = normalizeActivityLevel(u?.activityLevel ?? u?.activity_level)
   dialogVisible.value = true
 }
 
 const handleUpdateBody = async () => {
-  await updateUserInfoAPI({ ...userStore.userInfo, ...bodyForm })
-  ElMessage.success('更新成功'); dialogVisible.value = false; loadData()
+  const payload = {
+    ...userStore.userInfo,
+    ...bodyForm,
+    age: Number(bodyForm.age ?? 0),
+    height: Number(bodyForm.height ?? 0),
+    weight: Number(bodyForm.weight ?? 0),
+    target: Number(bodyForm.target ?? 0),
+    gender: Number(bodyForm.gender ?? 1),
+    activityLevel: Number(bodyForm.activityLevel ?? 0)
+  }
+  await updateUserInfoAPI(payload)
+  userStore.userInfo = { ...userStore.userInfo, ...payload, activity_level: payload.activityLevel }
+  localStorage.setItem('userInfo', JSON.stringify(userStore.userInfo))
+  ElMessage.success('更新成功')
+  dialogVisible.value = false
+  loadData()
 }
 
-onMounted(() => { loadData(); window.addEventListener('resize', () => { chartInstance?.resize(); trendInstance?.resize() }) })
+onMounted(() => {
+  loadData()
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+  chartInstance?.dispose()
+  trendInstance?.dispose()
+})
 </script>
 
 <template>
-  <div class="dashboard-container" v-loading="loading">
+  <div
+    class="dashboard-container"
+    v-loading="summaryLoading"
+    element-loading-text="正在加载首页数据..."
+    element-loading-background="rgba(255, 255, 255, 0.72)"
+  >
     <!-- 顶部摘要卡片 -->
     <el-row class="mb-25">
       <el-col :span="24">
@@ -167,16 +252,16 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
       </el-col>
     </el-row>
 
-    <!-- 中间核心数据层 -->
+    <!-- 中间核心数据区 -->
     <el-row :gutter="20">
-      <!-- 左：今日热量仪表盘 -->
+      <!-- 左侧：今日热量仪表盘 -->
       <el-col :xs="24" :sm="24" :md="10" :lg="9">
         <el-card class="glass-effect stat-card">
           <div ref="chartRef" class="chart-box"></div>
-          <div class="gauge-footer">今日目标上限: {{ Math.round(report.recommendCalories) }} kcal</div>
+          <div class="gauge-footer">今日目标上限：{{ reportTargetCalories }} kcal</div>
         </el-card>
       </el-col>
-      <!-- 右：营养素详情 -->
+      <!-- 右侧：营养素详情 -->
       <el-col :xs="24" :sm="24" :md="14" :lg="15">
         <el-card class="glass-effect stat-card">
           <template #header><div class="card-title"><el-icon><Apple /></el-icon> 三大营养素分析</div></template>
@@ -198,16 +283,21 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
       </el-col>
     </el-row>
 
-    <!-- 下部趋势与档案层 -->
+    <!-- 下部趋势与档案区 -->
     <el-row :gutter="20" class="mt-25">
       <!-- 7日趋势图 -->
       <el-col :xs="24" :sm="24" :md="14" :lg="15">
-        <el-card class="glass-effect trend-box">
+        <el-card
+          class="glass-effect trend-box"
+          v-loading="trendLoading"
+          element-loading-text="正在加载近七日趋势..."
+          element-loading-background="rgba(255, 255, 255, 0.68)"
+        >
           <div ref="trendRef" class="trend-chart-wrap"></div>
         </el-card>
       </el-col>
       
-      <!-- 身体档案卡 (带大幅水印填充) -->
+      <!-- 身体档案卡 -->
       <el-col :xs="24" :sm="24" :md="10" :lg="9">
         <el-card class="glass-effect info-card">
           <template #header>
@@ -226,37 +316,45 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
                 <span>性别</span><p>{{ userStore.userInfo.gender === 1 ? '男' : '女' }}</p>
               </div>
               <div class="it"><el-icon><Trophy /></el-icon> <span>BMI</span><p>{{ bmi }}</p></div>
+              <div class="it"><el-icon><Sunrise /></el-icon> <span>活动量</span><p>{{ activityLevelLabel }}</p></div>
             </div>
             
-            <!-- 🎨 这里的空白改用大幅半透明装饰背景图标填充 -->
             <div class="bg-watermark">
               <el-icon><Sunrise /></el-icon>
             </div>
 
             <div class="info-footer">
-               自律生活，从每一口食物开始 ✨
+               自律生活，从每一口食物开始
             </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 弹窗部分 -->
+    <!-- 编辑弹窗 -->
     <el-dialog v-model="dialogVisible" title="身体数据更新" width="400px">
        <el-form label-position="top">
           <el-row :gutter="15">
             <el-col :span="12"><el-form-item label="身高(cm)"><el-input-number v-model="bodyForm.height" style="width:100%" /></el-form-item></el-col>
             <el-col :span="12"><el-form-item label="体重(kg)"><el-input-number v-model="bodyForm.weight" :precision="1" style="width:100%" /></el-form-item></el-col>
           </el-row>
-          <el-form-item label="计划">
+          <el-form-item label="目标">
             <el-radio-group v-model="bodyForm.target" class="meal-radios">
               <el-radio-button :label="-1">减脂</el-radio-button>
-              <el-radio-button :label="0">维持</el-radio-button>
+              <el-radio-button :label="0">保持</el-radio-button>
               <el-radio-button :label="1">增肌</el-radio-button>
-              <el-radio-button :label="2">糖尿病控糖</el-radio-button>
-              <el-radio-button :label="3">高血压低盐</el-radio-button>
-              <el-radio-button :label="4">高血脂低脂</el-radio-button>
+              <el-radio-button :label="2">糖尿病控制</el-radio-button>
+              <el-radio-button :label="3">高血压控制</el-radio-button>
+              <el-radio-button :label="4">高血脂控制</el-radio-button>
             </el-radio-group>
+          </el-form-item>
+          <el-form-item label="活动量">
+            <el-select v-model="bodyForm.activityLevel" placeholder="请选择活动量" style="width:100%">
+              <el-option label="久坐少动" :value="1" />
+              <el-option label="轻量活动" :value="2" />
+              <el-option label="中等活动" :value="3" />
+              <el-option label="高活动量" :value="4" />
+            </el-select>
           </el-form-item>
        </el-form>
        <template #footer><el-button type="primary" @click="handleUpdateBody" style="width:100%">确认保存</el-button></template>
@@ -373,3 +471,4 @@ onMounted(() => { loadData(); window.addEventListener('resize', () => { chartIns
   }
 }
 </style>
+

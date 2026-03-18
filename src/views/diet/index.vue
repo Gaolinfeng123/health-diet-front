@@ -1,21 +1,41 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, computed } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { 
-  Search, Plus, Delete, Sunrise, Sunny, 
-  Moon, Grape, Dish 
+import {
+  Delete,
+  Dish,
+  Grape,
+  Moon,
+  Plus,
+  Search,
+  Sunny,
+  Sunrise
 } from '@element-plus/icons-vue'
-import { getFoodListAPI } from '@/api/food'
-import { addDietRecordAPI, getDietListAPI, deleteDietRecordAPI } from '@/api/diet'
-import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getFoodListAPI } from '@/api/food'
+import { addDietRecordAPI, deleteDietRecordAPI, getDietListAPI } from '@/api/diet'
+import { useUserStore } from '@/stores/user'
 import { getLocalDateString } from '@/utils/date'
+import { markRecommendRefreshNeeded } from '@/utils/recommendSync'
+
+interface FoodItem {
+  id: number
+  name: string
+  calories: number
+}
+
+interface DietItem {
+  id: number
+  foodName: string
+  totalCalories: number
+  quantity: number
+  mealType: number
+}
 
 const userStore = useUserStore()
 const route = useRoute()
 
-// --- 状态定义：左侧食物库 ---
-const foodList = ref<any[]>([])
+const foodList = ref<FoodItem[]>([])
 const foodLoading = ref(false)
 const foodTotal = ref(0)
 const foodQueryParams = reactive({
@@ -24,29 +44,29 @@ const foodQueryParams = reactive({
   keyword: ''
 })
 
-// --- 状态定义：右侧今日记录 ---
-const dietList = ref<any[]>([])
+const dietList = ref<DietItem[]>([])
 const listLoading = ref(false)
 const dietTotal = ref(0)
 const dietQueryParams = reactive({
   pageNum: 1,
   pageSize: 10,
   date: getLocalDateString(),
-  userId: userStore.userInfo.id 
+  userId: userStore.userInfo.id
 })
 
-// --- 状态定义：弹窗控制 ---
 const dialogVisible = ref(false)
-const currentFood = ref<any>({})
-const form = reactive({ 
-  mealType: 1, 
-  quantity: 1, 
+const currentFood = ref<Partial<FoodItem>>({})
+const form = reactive({
+  mealType: 1,
+  quantity: 1,
   date: getLocalDateString()
 })
 
-// =======================
-// 逻辑方法：食物库
-// =======================
+const markRecommendDirty = () => {
+  const userId = userStore.userInfo.id
+  if (!userId) return
+  markRecommendRefreshNeeded(userId)
+}
 
 const loadFoodList = async () => {
   foodLoading.value = true
@@ -55,10 +75,10 @@ const loadFoodList = async () => {
     const pageData = res.data || {}
     foodList.value = pageData.records || []
     foodTotal.value = pageData.total || 0
-  } catch (e) { 
-    console.error(e) 
-  } finally { 
-    foodLoading.value = false 
+  } catch (error) {
+    console.error(error)
+  } finally {
+    foodLoading.value = false
   }
 }
 
@@ -72,7 +92,6 @@ const handleFoodPageChange = (newPage: number) => {
   loadFoodList()
 }
 
-// 响应全局搜索栏
 const checkQuerySearch = () => {
   const queryKeyword = ((route.query.keyword as string) || '').trim()
   if (queryKeyword) {
@@ -81,14 +100,9 @@ const checkQuerySearch = () => {
   }
 }
 
-// 监听 URL 关键词变化
 watch(() => route.fullPath, () => {
   checkQuerySearch()
 })
-
-// =======================
-// 逻辑方法：饮食记录
-// =======================
 
 const loadDietList = async () => {
   listLoading.value = true
@@ -97,10 +111,10 @@ const loadDietList = async () => {
     const pageData = res.data || {}
     dietList.value = pageData.records || []
     dietTotal.value = pageData.total || 0
-  } catch (e) { 
-    console.error(e) 
-  } finally { 
-    listLoading.value = false 
+  } catch (error) {
+    console.error(error)
+  } finally {
+    listLoading.value = false
   }
 }
 
@@ -109,10 +123,11 @@ const handleDietPageChange = (newPage: number) => {
   loadDietList()
 }
 
-const openAddDialog = (food: any) => {
+const openAddDialog = (food: FoodItem) => {
   currentFood.value = food
   form.mealType = 1
   form.quantity = 1
+  form.date = getLocalDateString()
   dialogVisible.value = true
 }
 
@@ -123,39 +138,45 @@ const submitDiet = async () => {
       date: form.date,
       mealType: form.mealType,
       quantity: form.quantity,
-      userId: userStore.userInfo.id // 强制传递 ID 兼容管理员
+      userId: userStore.userInfo.id
     })
-    ElMessage.success('记录成功！')
+
     dialogVisible.value = false
-    dietQueryParams.pageNum = 1 // 回到第一页查看最新记录
-    loadDietList()
-  } catch (e) { 
-    console.error(e) 
+    dietQueryParams.pageNum = 1
+    markRecommendDirty()
+    await loadDietList()
+    ElMessage.success('记录成功')
+  } catch (error) {
+    console.error(error)
   }
 }
 
-const handleDelete = (id: number) => {
+const handleDelete = (item: DietItem) => {
   ElMessageBox.confirm('确定要删除这笔记录吗？', '提示', {
     type: 'warning',
     confirmButtonText: '删除',
     cancelButtonText: '取消'
   }).then(async () => {
-    await deleteDietRecordAPI(id)
-    ElMessage.success('已删除')
-    loadDietList()
+    await deleteDietRecordAPI(item.id)
+    markRecommendDirty()
+    await loadDietList()
+    ElMessage.success('已删除，今日推荐将在下次进入推荐页时更新')
   })
 }
 
-// =======================
-// 辅助工具
-// =======================
 const getMealIcon = (type: number) => {
   const map: Record<number, any> = { 1: Sunrise, 2: Sunny, 3: Moon, 4: Grape }
   return map[type]
 }
+
 const getMealName = (type: number) => {
   const map: Record<number, string> = { 1: '早餐', 2: '午餐', 3: '晚餐', 4: '加餐' }
   return map[type]
+}
+
+const formatQuantityInGrams = (quantity: number) => {
+  const grams = Number(quantity || 0) * 100
+  return `${Number.isInteger(grams) ? grams : grams.toFixed(1)}g`
 }
 
 const todayCalories = computed(() => {
@@ -163,7 +184,7 @@ const todayCalories = computed(() => {
 })
 
 const coveredMeals = computed(() => {
-  return new Set(dietList.value.map(item => item.mealType)).size
+  return new Set(dietList.value.map((item) => item.mealType)).size
 })
 
 const foodPageRange = computed(() => {
@@ -209,8 +230,6 @@ onMounted(() => {
     </div>
 
     <el-row :gutter="20" class="diet-main-row">
-      
-      <!-- 左侧：食物库 -->
       <el-col :xs="24" :sm="24" :md="14" :lg="14" class="pane-col">
         <el-card class="glass-effect bubble-card food-card">
           <div class="card-header-custom">
@@ -220,11 +239,11 @@ onMounted(() => {
               <el-tag round effect="light" type="warning">当前 {{ foodPageRange }}</el-tag>
             </div>
             <div class="search-box">
-              <el-input 
-                v-model="foodQueryParams.keyword" 
-                placeholder="搜索食物名称..." 
-                clearable 
-                @keyup.enter="handleSearch" 
+              <el-input
+                v-model="foodQueryParams.keyword"
+                placeholder="搜索食物名称..."
+                clearable
+                @keyup.enter="handleSearch"
                 @clear="handleSearch"
               >
                 <template #prefix><el-icon><Search /></el-icon></template>
@@ -237,7 +256,10 @@ onMounted(() => {
             <el-table :data="foodList" v-loading="foodLoading" height="100%" stripe class="custom-table">
               <el-table-column prop="name" label="食物名称" />
               <el-table-column prop="calories" label="热量" width="120">
-                <template #default="s"><span class="cal-val">{{ s.row.calories }}</span> <small>kcal</small></template>
+                <template #default="scope">
+                  <span class="cal-val">{{ scope.row.calories }}</span>
+                  <small>kcal/100g</small>
+                </template>
               </el-table-column>
               <el-table-column label="操作" width="90" align="center">
                 <template #default="scope">
@@ -248,11 +270,12 @@ onMounted(() => {
           </div>
 
           <div class="pagination-box">
-            <el-pagination 
-              small background 
-              layout="prev, pager, next" 
-              :total="foodTotal" 
-              :page-size="foodQueryParams.pageSize" 
+            <el-pagination
+              small
+              background
+              layout="prev, pager, next"
+              :total="foodTotal"
+              :page-size="foodQueryParams.pageSize"
               :current-page="foodQueryParams.pageNum"
               @current-change="handleFoodPageChange"
             />
@@ -260,7 +283,6 @@ onMounted(() => {
         </el-card>
       </el-col>
 
-      <!-- 右侧：今日饮食记录 -->
       <el-col :xs="24" :sm="24" :md="10" :lg="10" class="pane-col">
         <el-card class="glass-effect bubble-card record-card">
           <div class="record-head">
@@ -279,51 +301,51 @@ onMounted(() => {
               </div>
             </div>
           </div>
-          
+
           <div class="list-container" v-loading="listLoading">
-             <div class="scroll-area">
-                <el-empty v-if="dietList.length === 0" :image-size="100" description="今日尚未记录饮食" />
-                <div v-for="item in dietList" :key="item.id" class="diet-item">
-                  <div class="item-left">
-                    <div class="icon-bubble">
-                      <el-icon :size="18"><component :is="getMealIcon(item.mealType)"/></el-icon>
-                    </div>
-                    <div class="text-info">
-                      <div class="food-name">{{ item.foodName }}</div>
-                      <div class="meal-tag">{{ getMealName(item.mealType) }} · {{ item.quantity }} 份</div>
-                    </div>
+            <div class="scroll-area">
+              <el-empty v-if="dietList.length === 0" :image-size="100" description="今日尚未记录饮食" />
+              <div v-for="item in dietList" :key="item.id" class="diet-item">
+                <div class="item-left">
+                  <div class="icon-bubble">
+                    <el-icon :size="18"><component :is="getMealIcon(item.mealType)" /></el-icon>
                   </div>
-                  <div class="item-right">
-                    <span class="calories">{{ item.totalCalories }} <small>kcal</small></span>
-                    <el-button type="danger" link :icon="Delete" @click="handleDelete(item.id)" />
+                  <div class="text-info">
+                    <div class="food-name">{{ item.foodName }}</div>
+                    <div class="meal-tag">{{ getMealName(item.mealType) }} · {{ formatQuantityInGrams(item.quantity) }}</div>
                   </div>
                 </div>
-             </div>
-             
-             <div class="pagination-box" v-if="dietTotal > 0">
-               <el-pagination 
-                 small background 
-                 layout="prev, pager, next" 
-                 :total="dietTotal" 
-                 :page-size="dietQueryParams.pageSize" 
-                 :current-page="dietQueryParams.pageNum"
-                 @current-change="handleDietPageChange"
-               />
-             </div>
+                <div class="item-right">
+                  <span class="calories">{{ item.totalCalories }} <small>kcal</small></span>
+                  <el-button type="danger" link :icon="Delete" @click="handleDelete(item)" />
+                </div>
+              </div>
+            </div>
+
+            <div class="pagination-box" v-if="dietTotal > 0">
+              <el-pagination
+                small
+                background
+                layout="prev, pager, next"
+                :total="dietTotal"
+                :page-size="dietQueryParams.pageSize"
+                :current-page="dietQueryParams.pageNum"
+                @current-change="handleDietPageChange"
+              />
+            </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 添加记录对话框 -->
-    <el-dialog v-model="dialogVisible" title="记录这顿美食" width="380px" class="glass-dialog">
+    <el-dialog v-model="dialogVisible" title="记录这份美食" width="380px" class="glass-dialog">
       <div class="add-preview">
         <h4>{{ currentFood.name }}</h4>
         <div class="cal-badge">{{ currentFood.calories }} kcal / 100g</div>
       </div>
-      
+
       <el-form label-position="top" class="mt-20">
-        <el-form-item label="在什么时候吃的？">
+        <el-form-item label="这份食物属于哪一餐？">
           <el-radio-group v-model="form.mealType" size="default" class="meal-radios">
             <el-radio-button :label="1">早餐</el-radio-button>
             <el-radio-button :label="2">午餐</el-radio-button>
@@ -332,8 +354,8 @@ onMounted(() => {
           </el-radio-group>
         </el-form-item>
 
-        <el-form-item label="大概吃了多少？(1份=100g)">
-          <el-input-number v-model="form.quantity" :min="0.1" :max="20" :precision="1" style="width:100%" />
+        <el-form-item label="大概吃了多少？按 100g 为单位录入">
+          <el-input-number v-model="form.quantity" :min="0.1" :max="20" :precision="1" style="width: 100%" />
         </el-form-item>
       </el-form>
 
@@ -453,11 +475,15 @@ onMounted(() => {
   background: transparent !important;
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
+
   .cal-val {
     font-weight: 800;
     color: #ea580c;
   }
-  small { color: #94a3b8; }
+
+  small {
+    color: #94a3b8;
+  }
 }
 
 .record-card {
@@ -615,11 +641,13 @@ onMounted(() => {
   padding: 20px;
   background: #fff3e6;
   border-radius: 24px;
+
   h4 {
-    margin: 0 0 8px 0;
+    margin: 0 0 8px;
     color: #c2410c;
     font-size: 18px;
   }
+
   .cal-badge {
     font-size: 13px;
     color: #9a3412;
@@ -632,6 +660,7 @@ onMounted(() => {
   flex-wrap: wrap;
   width: 100%;
   gap: 6px;
+
   :deep(.el-radio-button__inner) {
     width: 100%;
     border-radius: 12px !important;
@@ -640,7 +669,10 @@ onMounted(() => {
   }
 }
 
-.mt-20 { margin-top: 20px; }
+.mt-20 {
+  margin-top: 20px;
+}
+
 :deep(.el-dialog) {
   border-radius: 30px;
   overflow: hidden;
@@ -671,6 +703,7 @@ onMounted(() => {
 
   .bubble-card {
     margin-bottom: 12px;
+
     :deep(.el-card__body) {
       min-height: 420px;
       padding: 12px;
@@ -680,6 +713,7 @@ onMounted(() => {
       flex-direction: column;
       align-items: flex-start;
       gap: 10px;
+
       .search-box {
         width: 100%;
         flex-direction: column;

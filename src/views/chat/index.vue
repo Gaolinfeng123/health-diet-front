@@ -420,6 +420,9 @@ const fetchQuickQuestions = async (date: string, force = false) => {
 }
 
 const fetchReport = async (showHint = false) => {
+  if (loadingReport.value) return
+
+  const previousReport = dailyReport.value
   loadingReport.value = true
   dailyReport.value = ''
   reportDate.value = getTargetReportDate()
@@ -438,10 +441,17 @@ const fetchReport = async (showHint = false) => {
   }, 2200)
 
   try {
-    void fetchQuickQuestions(reportDate.value, true)
     const res = await getDailyReportAPI(reportDate.value)
     dailyReport.value = normalizeText(res.data || '')
     reportEmptyTip.value = `${reportDate.value} 暂无复盘数据`
+    await fetchQuickQuestions(reportDate.value, true)
+    if (showHint) {
+      if (dailyReport.value && previousReport && dailyReport.value === previousReport) {
+        ElMessage.info('\u6628\u65e5\u590d\u76d8\u6682\u65e0\u65b0\u53d8\u5316\uff0c\u5f53\u524d\u5df2\u662f\u6700\u65b0\u5185\u5bb9')
+      } else {
+        ElMessage.success('\u6628\u65e5\u996e\u98df\u590d\u76d8\u5df2\u66f4\u65b0')
+      }
+    }
   } catch (error) {
     reportEmptyTip.value = '加载昨日复盘失败'
     if (showHint) {
@@ -692,7 +702,7 @@ onUnmounted(() => {
               <b>云膳 AI 昨日饮食复盘</b>
               <div class="report-head-right">
                 <el-tag round effect="plain" size="small">{{ reportDate }}</el-tag>
-                <el-button :icon="Refresh" circle size="small" @click="fetchReport(true)" />
+                <el-button :icon="Refresh" circle size="small" :loading="loadingReport" @click="fetchReport(true)" />
               </div>
             </div>
           </template>
